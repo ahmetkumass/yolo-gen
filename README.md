@@ -3,31 +3,12 @@
 **Detect objects → Describe them in natural language. One pipeline.**
 
 ```
-Input Image → YOLO finds "defect at [x,y]" → Model describes "2mm crack on solder joint, critical"
+Input Image → YOLO finds "defect" → Model describes "2mm crack on solder joint"
 ```
 
-Turn your object detector into an explainable AI system. Train YOLO + a description model together with one config, one command.
+Object detectors give you **where**, but not **what**. Vision models are too slow for production. YoloGen combines both: YOLO finds objects fast, then a local model describes them. Training data is auto-generated — no extra labeling needed.
 
-## Why YoloGen?
-
-**Object detectors alone aren't enough:**
-- Only output class + bounding box
-- No detailed descriptions ("what kind of defect?", "how severe?")
-- False positives require manual filtering
-
-**Generic vision-language models alone are too slow:**
-- Processing full images is expensive (~1-2s per image)
-- Can't handle real-time video streams
-- API costs scale linearly with volume
-
-**Detection + Description together solves both:**
-- Detector runs fast (~5ms), filters regions first
-- Description model only processes cropped detections (10x faster)
-- Rich output: "2mm scratch on surface edge" not just "defect"
-- Description validates detections → reduces false positives
-- Runs locally: no API costs, no latency, data stays private
-
-### Real-World Scenarios
+## Real-World Scenarios
 
 | Scenario | YOLO Detects | VLM Describes |
 |----------|--------------|---------------|
