@@ -173,3 +173,5 @@ Edit `system_prompt` and `details` under `vlm_dataset` section in your config fi
 ## License
 
 MIT
+
+Note: This project uses [Ultralytics](https://github.com/ultralytics/ultralytics) which is licensed under AGPL-3.0. See their license for details.
