@@ -1,17 +1,31 @@
 # YoloGen
 
-**YOLO Object Detection + VLM Description in One Pipeline**
+**Detect objects → Describe them in natural language. One pipeline.**
 
-Train YOLO to detect objects, then train a Vision-Language Model to describe what's inside each detection. One config, one command.
+```
+Input Image → YOLO finds "defect at [x,y]" → Model describes "2mm crack on solder joint, critical"
+```
+
+Turn your object detector into an explainable AI system. Train YOLO + a description model together with one config, one command.
 
 ## Why YoloGen?
 
-**Problem**: Generic VLMs (GPT-4V, Gemini) don't understand YOUR specific domain.
+**Object detectors alone aren't enough:**
+- Only output class + bounding box
+- No detailed descriptions ("what kind of defect?", "how severe?")
+- False positives require manual filtering
 
-- A generic VLM sees a product and says "this is an electronic component"
-- YOUR fine-tuned VLM says "this is a defective capacitor with visible burn marks"
+**Generic vision-language models alone are too slow:**
+- Processing full images is expensive (~1-2s per image)
+- Can't handle real-time video streams
+- API costs scale linearly with volume
 
-**Solution**: YoloGen lets you train domain-specific detection + description with minimal effort.
+**Detection + Description together solves both:**
+- Detector runs fast (~5ms), filters regions first
+- Description model only processes cropped detections (10x faster)
+- Rich output: "2mm scratch on surface edge" not just "defect"
+- Description validates detections → reduces false positives
+- Runs locally: no API costs, no latency, data stays private
 
 ### Real-World Scenarios
 
@@ -23,15 +37,6 @@ Train YOLO to detect objects, then train a Vision-Language Model to describe wha
 | **Retail** | Product on shelf | "2 items remaining on shelf, front row empty" |
 | **Agriculture** | Crop, pest | "Small green insects on leaf underside, early cluster" |
 | **False Positive Filter** | "Person" (conf: 0.6) | "This is a mannequin, not a real person" → filtered out |
-
-### Key Advantages
-
-| vs Generic VLMs | vs Detection Only |
-|-----------------|-------------------|
-| Domain-specific vocabulary | Rich natural language output |
-| Consistent structured answers | Context beyond bounding box |
-| Works offline (local model) | Explainable AI for audits |
-| No API costs | Human-readable reports |
 
 ## What It Does
 
@@ -73,7 +78,7 @@ data/my_dataset/
 ### 3. Train (One Command)
 
 ```bash
-python train.py --config configs/default.yaml
+python train.py --config configs/car_detection.yaml
 ```
 
 This will:
@@ -96,7 +101,7 @@ python predict.py --weights runs/exp_xxx/yolo/weights/best.pt --source image.jpg
 
 ## Configuration
 
-Edit `configs/default.yaml`:
+Edit `configs/car_detection.yaml`:
 
 ```yaml
 # YOLO settings
@@ -182,7 +187,7 @@ Yes. Set `vlm.enabled: false` in config, or just use `predict.py` without `--vlm
 - YOLO + VLM (fp16): 24GB+ (A100/RTX 3090)
 
 **How do I customize VLM responses?**
-Edit `system_prompt` and `details` in your dataset.yaml under `vlm_dataset` section.
+Edit `system_prompt` and `details` under `vlm_dataset` section in your config file (e.g., `configs/car_detection.yaml`).
 
 ## License
 

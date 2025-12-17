@@ -1,23 +1,18 @@
-# YoloGen - Car Detection Config
+# YoloGen Example: Car Detection
 # Usage: python train.py --config configs/car_detection.yaml
-# Tüm ayarlar tek dosyada!
+#
+# This is a complete working example. Copy and modify for your own dataset.
 
 # ============================================================
-# DATASET (Ultralytics format)
+# DATASET
 # ============================================================
-dataset:
-  path: data/car_detection
-  train: images/train
-  val: images/val
-  nc: 1
-  names:
-    0: car
+data: data/car_detection/dataset.yaml
 
 # ============================================================
 # YOLO TRAINING
 # ============================================================
 yolo:
-  model: yolov8n.pt
+  model: yolov8n.pt                # Options: yolov8n/s/m/l/x, yolo11n/s/m/l/x
   epochs: 100
   batch: 16
   imgsz: 640
@@ -30,7 +25,7 @@ yolo:
   weight_decay: 0.0005
   warmup_epochs: 3
 
-  # Loss
+  # Loss weights
   box: 7.5
   cls: 0.5
   dfl: 1.5
@@ -52,22 +47,22 @@ yolo:
   patience: 50
 
 # ============================================================
-# VLM TRAINING
+# VLM TRAINING (Vision-Language Model)
 # ============================================================
 vlm:
-  enabled: true
+  enabled: true                    # Set false to skip VLM training
   model: Qwen/Qwen2.5-VL-7B-Instruct
   epochs: 3
   batch_size: 1
   lr: 0.00001
-  precision: 4bit
+  precision: 4bit                  # 4bit (QLoRA), 8bit, or fp16
 
-  # LoRA
+  # LoRA parameters
   lora_r: 64
   lora_alpha: 16
   lora_dropout: 0.05
 
-  # Memory
+  # Memory optimization
   gradient_checkpointing: true
   gradient_accumulation: 4
 
@@ -75,20 +70,17 @@ vlm:
 # VLM DATASET GENERATION
 # ============================================================
 vlm_dataset:
-  box_color: [255, 0, 0]
+  # Box settings (BGR format for OpenCV)
+  box_color: [0, 0, 255]           # Red=[0,0,255], Green=[0,255,0], Blue=[255,0,0]
   box_thickness: 3
-  train_ratio: 0.8
 
-  prompts:
-    - question: "What objects are highlighted in the red boxes?"
-      answer: "The red boxes highlight {objects} in the image."
-    - question: "How many {class}s are marked in this image?"
-      answer: "There {count_text} marked in the image."
-    - question: "Are there any {class}s in this image?"
-      answer: "{yes_no}, {explanation}."
-    - question: "Describe the objects in the red boxes."
-      answer: "The red boxes show {objects}. {detail}"
+  # System prompt (used in both training and inference)
+  system_prompt: |
+    You are a vehicle detection assistant.
+    When shown an image with a red bounding box, identify and describe
+    the vehicle inside the red marked area clearly and confidently.
 
+  # Class-specific descriptions (improves VLM answers)
   details:
     car:
       - "The vehicle appears to be a passenger car."

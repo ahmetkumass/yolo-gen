@@ -1,5 +1,14 @@
-# Car Detection Dataset
-# Ultralytics YOLO format
+# Car Detection Dataset (Ultralytics YOLO format)
+#
+# Directory structure:
+#   data/car_detection/
+#   ├── images/
+#   │   ├── train/
+#   │   └── val/
+#   ├── labels/
+#   │   ├── train/
+#   │   └── val/
+#   └── dataset.yaml (this file)
 
 path: .
 train: images/train
