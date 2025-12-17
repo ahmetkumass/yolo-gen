@@ -1,0 +1,147 @@
+# Unified YOLO + VLM Training Configuration
+# Usage: python train_all.py --config config.yaml
+
+# Dataset configuration
+data: data/car_detection/dataset.yaml
+
+# ============================================================
+# YOLO Configuration (Ultralytics)
+# ============================================================
+yolo:
+  # Model variant: yolov8n.pt (nano), yolov8s.pt (small), yolov8m.pt (medium)
+  model: yolov8n.pt
+
+  # Training settings
+  epochs: 100
+  batch: 16
+  imgsz: 640
+
+  # Optimizer
+  optimizer: auto  # auto, SGD, Adam, AdamW
+  lr0: 0.01        # Initial learning rate
+  lrf: 0.01        # Final learning rate factor
+
+  # Early stopping
+  patience: 50
+
+  # Augmentation (Ultralytics defaults)
+  mosaic: 1.0      # Mosaic probability
+  mixup: 0.0       # MixUp probability
+  hsv_h: 0.015     # HSV hue augmentation
+  hsv_s: 0.7       # HSV saturation augmentation
+  hsv_v: 0.4       # HSV value augmentation
+  degrees: 0.0     # Rotation degrees
+  translate: 0.1   # Translation
+  scale: 0.5       # Scale
+  fliplr: 0.5      # Horizontal flip probability
+  erasing: 0.4     # Random erasing probability
+  close_mosaic: 10 # Disable mosaic in last N epochs
+
+# ============================================================
+# VLM Configuration (Qwen)
+# ============================================================
+vlm:
+  # Enable/disable VLM training
+  enabled: true
+
+  # Model options:
+  #   - Qwen/Qwen2-VL-2B-Instruct (smallest, ~4GB VRAM)
+  #   - Qwen/Qwen2-VL-7B-Instruct
+  #   - Qwen/Qwen2.5-VL-3B-Instruct
+  #   - Qwen/Qwen2.5-VL-7B-Instruct (recommended)
+  model: Qwen/Qwen2.5-VL-7B-Instruct
+
+  # Training settings
+  epochs: 3
+  batch_size: 1
+  lr: 0.00001      # Learning rate (1e-5)
+
+  # Quantization: 4bit (QLoRA), 8bit, fp16
+  precision: 4bit
+
+  # LoRA settings
+  lora_r: 64       # LoRA rank
+  lora_alpha: 16   # LoRA alpha
+  lora_dropout: 0.05
+
+  # Memory optimization
+  gradient_checkpointing: true
+  gradient_accumulation: 4
+
+# ============================================================
+# VLM Dataset Generation
+# ============================================================
+vlm_dataset:
+  # Box settings (BGR format for OpenCV)
+  # [0, 0, 255] = Red, [255, 0, 0] = Blue, [0, 255, 0] = Green
+  box_color: [0, 0, 255]  # BGR Red
+  box_thickness: 3
+
+  # System prompt for VLM (used in both training and inference)
+  system_prompt: |
+    You are an object detection assistant.
+    When shown an image with a red bounding box, identify and describe
+    the object inside the red marked area clearly and confidently.
+    Be specific about what you see.
+
+  # Custom prompt templates
+  # Placeholders: {class}, {objects}, {count_text}, {yes_no}, {explanation}, {detail}
+  prompts:
+    - question: "What objects are highlighted in the red boxes?"
+      answer: "The red boxes highlight {objects} in the image."
+
+    - question: "How many {class}s are marked in this image?"
+      answer: "There {count_text} marked in the image."
+
+    - question: "Describe the objects shown in the red boxes."
+      answer: "The red boxes show {objects}. {detail}"
+
+    - question: "What can you see inside the red bounding boxes?"
+      answer: "Inside the red bounding boxes, I can see {objects}."
+
+    - question: "Are there any {class}s in this image?"
+      answer: "{yes_no}, {explanation}."
+
+    - question: "Count the number of objects marked."
+      answer: "There {count_text} in total."
+
+    - question: "What type of object is inside the red rectangle?"
+      answer: "The red rectangle contains a {class}."
+
+    - question: "Can you describe what is marked with red?"
+      answer: "The red marking shows {objects}. {detail}"
+
+  # Class-specific detail sentences
+  # Used to generate more descriptive answers
+  details:
+    car:
+      - "The vehicle appears to be a passenger car."
+      - "This is an automobile captured in the scene."
+      - "The car is visible in the frame."
+      - "A motor vehicle is present in the image."
+      - "This appears to be a standard road vehicle."
+
+    # Add more classes as needed:
+    # truck:
+    #   - "This is a large commercial vehicle."
+    #   - "The truck appears to be a freight vehicle."
+    #
+    # person:
+    #   - "A human figure is visible."
+    #   - "This appears to be a pedestrian."
+    #
+    # gun:
+    #   - "This is a dangerous weapon."
+    #   - "The firearm appears to be a handgun."
+    #
+    # knife:
+    #   - "This is a bladed weapon."
+    #   - "A sharp cutting tool is visible."
+
+# ============================================================
+# Output Settings
+# ============================================================
+output:
+  save_dir: runs/unified
+  export_onnx: true
+  export_tensorrt: false

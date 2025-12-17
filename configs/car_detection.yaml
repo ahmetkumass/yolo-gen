@@ -1,0 +1,103 @@
+# YoloGen - Car Detection Config
+# Usage: python train.py --config configs/car_detection.yaml
+# Tüm ayarlar tek dosyada!
+
+# ============================================================
+# DATASET (Ultralytics format)
+# ============================================================
+dataset:
+  path: data/car_detection
+  train: images/train
+  val: images/val
+  nc: 1
+  names:
+    0: car
+
+# ============================================================
+# YOLO TRAINING
+# ============================================================
+yolo:
+  model: yolov8n.pt
+  epochs: 100
+  batch: 16
+  imgsz: 640
+
+  # Optimizer
+  optimizer: auto
+  lr0: 0.01
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3
+
+  # Loss
+  box: 7.5
+  cls: 0.5
+  dfl: 1.5
+
+  # Augmentation
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.0
+  erasing: 0.4
+  close_mosaic: 10
+
+  # Early stopping
+  patience: 50
+
+# ============================================================
+# VLM TRAINING
+# ============================================================
+vlm:
+  enabled: true
+  model: Qwen/Qwen2.5-VL-7B-Instruct
+  epochs: 3
+  batch_size: 1
+  lr: 0.00001
+  precision: 4bit
+
+  # LoRA
+  lora_r: 64
+  lora_alpha: 16
+  lora_dropout: 0.05
+
+  # Memory
+  gradient_checkpointing: true
+  gradient_accumulation: 4
+
+# ============================================================
+# VLM DATASET GENERATION
+# ============================================================
+vlm_dataset:
+  box_color: [255, 0, 0]
+  box_thickness: 3
+  train_ratio: 0.8
+
+  prompts:
+    - question: "What objects are highlighted in the red boxes?"
+      answer: "The red boxes highlight {objects} in the image."
+    - question: "How many {class}s are marked in this image?"
+      answer: "There {count_text} marked in the image."
+    - question: "Are there any {class}s in this image?"
+      answer: "{yes_no}, {explanation}."
+    - question: "Describe the objects in the red boxes."
+      answer: "The red boxes show {objects}. {detail}"
+
+  details:
+    car:
+      - "The vehicle appears to be a passenger car."
+      - "This is an automobile captured in the scene."
+      - "A motor vehicle is present in the image."
+
+# ============================================================
+# OUTPUT
+# ============================================================
+output:
+  save_dir: runs
+  export_onnx: true

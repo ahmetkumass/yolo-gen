@@ -1,0 +1,25 @@
+# YoloGen Requirements
+
+# Core - YOLO
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Image processing
+opencv-python>=4.8.0
+Pillow>=9.0.0
+numpy>=1.23.0
+
+# Visualization
+matplotlib>=3.7.0
+
+# Utilities
+pyyaml>=6.0
+tqdm>=4.65.0
+
+# VLM (optional - install if using VLM features)
+transformers>=4.37.0
+accelerate>=0.25.0
+peft>=0.7.0
+bitsandbytes>=0.41.0
+qwen-vl-utils

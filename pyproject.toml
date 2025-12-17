@@ -1,0 +1,104 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yologen"
+version = "1.0.0"
+description = "Train YOLO object detection + Vision-Language Model description in one pipeline"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Ahmet Kumas", email = "ahmetkumass@github.com"}
+]
+keywords = [
+    "yolo",
+    "object-detection",
+    "vlm",
+    "vision-language-model",
+    "qwen",
+    "ultralytics",
+    "deep-learning",
+    "computer-vision",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "ultralytics>=8.0.0",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "opencv-python>=4.8.0",
+    "Pillow>=9.0.0",
+    "numpy>=1.23.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+vlm = [
+    "transformers>=4.37.0",
+    "accelerate>=0.25.0",
+    "peft>=0.7.0",
+    "bitsandbytes>=0.41.0",
+    "qwen-vl-utils",
+]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+]
+all = [
+    "yologen[vlm,dev]",
+]
+
+[project.scripts]
+yologen-train = "yologen.cli:train_cli"
+yologen-predict = "yologen.cli:predict_cli"
+yologen-generate = "yologen.cli:generate_cli"
+
+[project.urls]
+Homepage = "https://github.com/ahmetkumass/yolo-gen"
+Documentation = "https://github.com/ahmetkumass/yolo-gen#readme"
+Repository = "https://github.com/ahmetkumass/yolo-gen"
+Issues = "https://github.com/ahmetkumass/yolo-gen/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["yologen*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+    | \.venv
+    | build
+    | dist
+    | runs
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip = [".git", ".venv", "build", "dist", "runs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
