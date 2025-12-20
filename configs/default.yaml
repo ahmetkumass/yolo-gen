@@ -1,0 +1,114 @@
+# YoloGen Default Configuration
+# Works on most hardware (8GB+ VRAM)
+#
+# Usage: python train.py --config configs/default.yaml
+#
+# For custom datasets, copy this file and modify:
+#   1. data: path to your dataset.yaml
+#   2. vlm_dataset.prompts: your Q&A templates
+#   3. vlm_dataset.details: class-specific descriptions
+
+# ============================================================
+# DATASET
+# ============================================================
+data: data/your_dataset/dataset.yaml
+
+# ============================================================
+# YOLO TRAINING
+# ============================================================
+yolo:
+  model: yolov8n.pt               # nano (fastest), s/m/l/x for accuracy
+  epochs: 100
+  batch: 16                       # Reduce if OOM
+  imgsz: 640
+
+  # Optimizer
+  optimizer: auto
+  lr0: 0.01
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 3
+
+  # Loss weights
+  box: 7.5
+  cls: 0.5
+  dfl: 1.5
+
+  # Augmentation
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.0
+
+  # Early stopping
+  patience: 50
+
+# ============================================================
+# VLM TRAINING (Vision-Language Model)
+# ============================================================
+vlm:
+  enabled: true
+  model: Qwen/Qwen2.5-VL-7B-Instruct
+
+  # Training
+  epochs: 3
+  batch_size: 1                   # Keep at 1 for 8-16GB VRAM
+  lr: 0.00002
+  precision: 4bit                 # 4bit for <16GB, 8bit for 16-24GB
+  max_samples: 10000              # Limit samples (null = use all)
+
+  # LoRA (Low-Rank Adaptation)
+  lora_r: 64                      # Rank: 16/32/64/128
+  lora_alpha: 16
+  lora_dropout: 0.05
+
+  # Memory optimization
+  gradient_checkpointing: true
+  gradient_accumulation: 8        # Increase if OOM, effective_batch = batch * accumulation
+
+# ============================================================
+# VLM DATASET GENERATION
+# ============================================================
+vlm_dataset:
+  box_color: [0, 0, 255]          # BGR Red (OpenCV format)
+  box_thickness: 3
+
+  system_prompt: |
+    You are an object detection assistant.
+    When shown an image with a red bounding box, identify and describe
+    the object inside the marked area clearly and concisely.
+
+  # Prompt templates - customize for your use case
+  # Placeholders: {class}, {detail}, {yes_no}, {explanation}
+  prompts:
+    - question: "What is in the red marked area?"
+      answer: "The red marked area contains a {class}. {detail}"
+
+    - question: "Is there an object in the red bounding box?"
+      answer: "{yes_no}, {explanation}."
+
+    - question: "Describe the object inside the red rectangle."
+      answer: "Inside the red rectangle, I can see a {class}. {detail}"
+
+    - question: "What can you identify in the highlighted area?"
+      answer: "The highlighted area shows a {class}."
+
+  # Class-specific descriptions (customize per class)
+  # details:
+  #   person:
+  #     - "A person is visible in the frame."
+  #   car:
+  #     - "A vehicle/car is detected."
+
+# ============================================================
+# OUTPUT
+# ============================================================
+output:
+  save_dir: runs
+  export_onnx: true

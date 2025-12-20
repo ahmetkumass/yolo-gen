@@ -20,12 +20,15 @@ from tqdm import tqdm
 class VLMDataset(Dataset):
     """Dataset for VLM training with Q&A pairs."""
 
-    def __init__(self, jsonl_path: str, image_root: str):
+    def __init__(self, jsonl_path: str, image_root: str, max_samples: int = None):
         """
         Args:
             jsonl_path: Path to JSONL file with Q&A samples
             image_root: Root directory for images
+            max_samples: Maximum number of samples to use (None = use all)
         """
+        import random
+
         self.image_root = Path(image_root)
         self.samples = []
 
@@ -34,6 +37,13 @@ class VLMDataset(Dataset):
                 line = line.strip()
                 if line:
                     self.samples.append(json.loads(line))
+
+        # Limit samples if max_samples is specified
+        if max_samples and len(self.samples) > max_samples:
+            total = len(self.samples)
+            random.shuffle(self.samples)
+            self.samples = self.samples[:max_samples]
+            print(f"Using {max_samples} samples (from {total} total)")
 
     def __len__(self):
         return len(self.samples)
@@ -144,6 +154,7 @@ class VLMTrainer:
         save_dir: str = None,
         name: str = None,
         resume: str = None,
+        max_samples: int = None,
     ) -> Dict[str, Any]:
         """
         Train VLM with QLoRA.
@@ -158,6 +169,7 @@ class VLMTrainer:
             save_dir: Output directory
             name: Experiment name
             resume: Path to adapter to resume from
+            max_samples: Maximum training samples (None = use all)
 
         Returns:
             Training results
@@ -194,7 +206,7 @@ class VLMTrainer:
             print(f"Loaded system_prompt from config: {'yes' if system_prompt else 'no'}")
 
         # Dataset
-        train_dataset = VLMDataset(str(train_jsonl), str(data_path))
+        train_dataset = VLMDataset(str(train_jsonl), str(data_path), max_samples=max_samples)
         train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,

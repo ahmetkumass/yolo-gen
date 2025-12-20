@@ -106,6 +106,174 @@ class YOLOPredictor:
         return all_results
 
 
+class VLMPredictor:
+    """
+    VLM-only Predictor for Vision-Language Model inference.
+
+    Use this when you have bounding boxes from another source
+    or want to ask questions about specific image regions.
+
+    Example:
+        predictor = VLMPredictor(vlm_adapter="vlm_adapter/")
+        answer = predictor.predict(
+            image="image.jpg",
+            bbox=[100, 100, 300, 300],
+            question="What is in the red box?"
+        )
+    """
+
+    def __init__(
+        self,
+        vlm_model: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        vlm_adapter: str = None,
+        vlm_precision: str = "4bit",
+        device: str = "",
+        box_color: tuple = None,
+        box_thickness: int = None,
+    ):
+        """
+        Initialize VLM-only predictor.
+
+        Args:
+            vlm_model: VLM model name
+            vlm_adapter: Path to VLM adapter (fine-tuned weights)
+            vlm_precision: VLM precision (4bit, 8bit, fp16)
+            device: Device to use
+            box_color: RGB tuple for box color (None = load from training config)
+            box_thickness: Box line thickness (None = load from training config)
+        """
+        self.vlm = None
+        self.vlm_model = vlm_model
+        self.vlm_adapter = vlm_adapter
+        self.vlm_precision = vlm_precision
+        self.device = device
+
+        # VLM settings (None = will be loaded from config, otherwise use provided)
+        self._box_color_override = box_color
+        self._box_thickness_override = box_thickness
+        self.box_thickness = box_thickness if box_thickness is not None else 3
+        self.box_color = box_color if box_color is not None else (255, 0, 0)
+        self.system_prompt = None
+
+    def _load_vlm(self):
+        """Load VLM model lazily."""
+        if self.vlm is not None:
+            return
+
+        parent_path = Path(__file__).parent.parent.parent.parent
+        if str(parent_path) not in sys.path:
+            sys.path.insert(0, str(parent_path))
+
+        # Load box settings from VLM config if available
+        if self.vlm_adapter:
+            self._load_vlm_config()
+
+        try:
+            from yologen.models.vlm.qwen import create_qwen_vlm
+
+            self.vlm = create_qwen_vlm(
+                model_name=self.vlm_model,
+                load_in_4bit=(self.vlm_precision == "4bit"),
+                load_in_8bit=(self.vlm_precision == "8bit"),
+                use_lora=False,
+                gradient_checkpointing=False,
+            )
+            self.vlm.load_model()
+
+            if self.vlm_adapter:
+                self.vlm.load_adapter(self.vlm_adapter)
+
+        except ImportError as e:
+            raise ImportError(
+                f"VLM dependencies not installed: {e}\n"
+                "Install with: pip install transformers accelerate peft bitsandbytes qwen-vl-utils"
+            )
+
+    def _load_vlm_config(self):
+        """Load VLM config for consistent box settings (respects constructor overrides)."""
+        import json
+
+        adapter_path = Path(self.vlm_adapter)
+
+        search_paths = [
+            adapter_path / "config.json",
+            adapter_path.parent / "config.json",
+            adapter_path.parent.parent / "vlm" / "config.json",
+        ]
+
+        for config_path in search_paths:
+            if config_path.exists():
+                try:
+                    with open(config_path) as f:
+                        config = json.load(f)
+                    # Only load from config if not overridden in constructor
+                    if self._box_thickness_override is None:
+                        self.box_thickness = config.get('box_thickness', self.box_thickness)
+                    if self._box_color_override is None:
+                        box_color = config.get('box_color', list(self.box_color))
+                        self.box_color = tuple(box_color) if isinstance(box_color, list) else box_color
+                    self.system_prompt = config.get('system_prompt')
+                    print(f"Loaded VLM config: box_thickness={self.box_thickness}, box_color={self.box_color}")
+                    return
+                except Exception:
+                    continue
+
+    def predict(
+        self,
+        image: str,
+        bbox: List[float] = None,
+        question: str = "What is in the red marked area?",
+    ) -> str:
+        """
+        Run VLM inference on an image region.
+
+        Args:
+            image: Image path
+            bbox: Bounding box [x1, y1, x2, y2] (optional, if None asks about whole image)
+            question: Question to ask VLM
+
+        Returns:
+            VLM answer string
+        """
+        self._load_vlm()
+
+        try:
+            answer = self.vlm.generate(
+                image=image,
+                question=question,
+                bbox=bbox,
+                box_thickness=self.box_thickness,
+                box_color=self.box_color,
+                system_prompt=self.system_prompt,
+            )
+            return answer
+        except Exception as e:
+            return f"Error: {str(e)}"
+
+    def predict_batch(
+        self,
+        image: str,
+        bboxes: List[List[float]],
+        question: str = "What is in the red marked area?",
+    ) -> List[str]:
+        """
+        Run VLM inference on multiple regions of an image.
+
+        Args:
+            image: Image path
+            bboxes: List of bounding boxes [[x1, y1, x2, y2], ...]
+            question: Question to ask VLM
+
+        Returns:
+            List of VLM answers
+        """
+        answers = []
+        for bbox in bboxes:
+            answer = self.predict(image=image, bbox=bbox, question=question)
+            answers.append(answer)
+        return answers
+
+
 class UnifiedPredictor:
     """
     Unified YOLO + VLM Predictor.
@@ -127,6 +295,8 @@ class UnifiedPredictor:
         vlm_adapter: str = None,
         vlm_precision: str = "4bit",
         device: str = "",
+        box_color: tuple = None,
+        box_thickness: int = None,
     ):
         """
         Initialize unified predictor.
@@ -137,6 +307,8 @@ class UnifiedPredictor:
             vlm_adapter: Path to VLM adapter
             vlm_precision: VLM precision (4bit, 8bit, fp16)
             device: Device to use
+            box_color: RGB tuple for box color (None = load from training config)
+            box_thickness: Box line thickness (None = load from training config)
         """
         self.yolo = YOLO(yolo_weights)
         self.class_names = self.yolo.names
@@ -147,10 +319,12 @@ class UnifiedPredictor:
         self.vlm_adapter = vlm_adapter
         self.vlm_precision = vlm_precision
 
-        # VLM settings (will be loaded from config)
-        self.box_thickness = 3
-        self.box_color = (255, 0, 0)  # RGB red
-        self.system_prompt = None  # Will be loaded from config
+        # VLM settings (None = will be loaded from config, otherwise use provided)
+        self._box_color_override = box_color
+        self._box_thickness_override = box_thickness
+        self.box_thickness = box_thickness if box_thickness is not None else 3
+        self.box_color = box_color if box_color is not None else (255, 0, 0)
+        self.system_prompt = None
 
     def _load_vlm(self):
         """Load VLM model lazily."""
@@ -188,7 +362,7 @@ class UnifiedPredictor:
             )
 
     def _load_vlm_config(self):
-        """Load VLM config for consistent box settings."""
+        """Load VLM config for consistent box settings (respects constructor overrides)."""
         import json
 
         adapter_path = Path(self.vlm_adapter)
@@ -206,11 +380,14 @@ class UnifiedPredictor:
                 try:
                     with open(config_path) as f:
                         config = json.load(f)
-                    self.box_thickness = config.get('box_thickness', self.box_thickness)
-                    box_color = config.get('box_color', list(self.box_color))
-                    self.box_color = tuple(box_color) if isinstance(box_color, list) else box_color
+                    # Only load from config if not overridden in constructor
+                    if self._box_thickness_override is None:
+                        self.box_thickness = config.get('box_thickness', self.box_thickness)
+                    if self._box_color_override is None:
+                        box_color = config.get('box_color', list(self.box_color))
+                        self.box_color = tuple(box_color) if isinstance(box_color, list) else box_color
                     self.system_prompt = config.get('system_prompt')
-                    print(f"Loaded VLM config: box_thickness={self.box_thickness}, system_prompt={'yes' if self.system_prompt else 'no'}")
+                    print(f"Loaded VLM config: box_thickness={self.box_thickness}, box_color={self.box_color}")
                     return
                 except Exception:
                     continue

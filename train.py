@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--vlm-model", type=str, default="Qwen/Qwen2.5-VL-7B-Instruct")
     parser.add_argument("--vlm-epochs", type=int, default=3)
     parser.add_argument("--vlm-precision", type=str, default="4bit")
+    parser.add_argument("--vlm-max-samples", type=int, default=None, help="Max training samples for VLM")
     parser.add_argument("--skip-yolo", action="store_true")
     parser.add_argument("--skip-vlm-data", action="store_true")
 
@@ -57,12 +58,14 @@ def main():
     args = parser.parse_args()
 
     # Load config if provided
+    vlm_dataset_config = None
     if args.config:
         with open(args.config) as f:
             cfg = yaml.safe_load(f)
         args.data = args.data or cfg.get('data')
         yolo_cfg = cfg.get('yolo', {})
         vlm_cfg = cfg.get('vlm', {})
+        vlm_dataset_config = cfg.get('vlm_dataset')  # VLM dataset generation settings
         args.model = yolo_cfg.get('model', args.model)
         args.epochs = yolo_cfg.get('epochs', args.epochs)
         args.batch = yolo_cfg.get('batch', args.batch)
@@ -70,6 +73,15 @@ def main():
         args.vlm_model = vlm_cfg.get('model', args.vlm_model)
         args.vlm_epochs = vlm_cfg.get('epochs', args.vlm_epochs)
         args.vlm_precision = vlm_cfg.get('precision', args.vlm_precision)
+        args.vlm_max_samples = vlm_cfg.get('max_samples', args.vlm_max_samples)
+        # VLM training params
+        args.vlm_batch_size = vlm_cfg.get('batch_size', 1)
+        args.vlm_lr = vlm_cfg.get('lr', 2e-5)
+        args.vlm_gradient_accumulation = vlm_cfg.get('gradient_accumulation', 4)
+        args.vlm_lora_r = vlm_cfg.get('lora_r', 64)
+        args.vlm_lora_alpha = vlm_cfg.get('lora_alpha', 16)
+        args.vlm_lora_dropout = vlm_cfg.get('lora_dropout', 0.05)
+        args.vlm_gradient_checkpointing = vlm_cfg.get('gradient_checkpointing', True)
 
     if not args.data:
         parser.error("--data or --config required")
@@ -98,8 +110,13 @@ def main():
     print("=" * 60)
     print(f"Dataset: {data_path}")
     print(f"Output: {output_dir}")
-    print(f"YOLO: {args.model}, {args.epochs} epochs")
-    print(f"VLM: {'Enabled' if args.vlm else 'Disabled'}")
+    print(f"YOLO: {args.model}, {args.epochs} epochs, batch={args.batch}")
+    if args.vlm:
+        print(f"VLM: {args.vlm_model}")
+        print(f"     epochs={args.vlm_epochs}, batch={getattr(args, 'vlm_batch_size', 1)}, lr={getattr(args, 'vlm_lr', 2e-5)}")
+        print(f"     lora_r={getattr(args, 'vlm_lora_r', 64)}, max_samples={args.vlm_max_samples}")
+    else:
+        print(f"VLM: Disabled")
 
     results = {}
 
@@ -141,7 +158,7 @@ def main():
 
         from yologen.data.vlm_dataset import VLMDatasetGenerator
 
-        generator = VLMDatasetGenerator(str(data_path))
+        generator = VLMDatasetGenerator(str(data_path), vlm_config=vlm_dataset_config)
         stats = generator.generate(force=True)
         vlm_data_dir = generator.data_path / 'vlm'
         print(f"Generated {stats.get('qa_pairs', 0)} Q&A pairs")
@@ -169,12 +186,20 @@ def main():
             trainer = VLMTrainer(
                 model=args.vlm_model,
                 precision=args.vlm_precision,
+                lora_r=getattr(args, 'vlm_lora_r', 64),
+                lora_alpha=getattr(args, 'vlm_lora_alpha', 16),
+                lora_dropout=getattr(args, 'vlm_lora_dropout', 0.05),
+                gradient_checkpointing=getattr(args, 'vlm_gradient_checkpointing', True),
             )
             vlm_results = trainer.train(
                 data=str(vlm_data_dir),
                 epochs=args.vlm_epochs,
+                batch_size=getattr(args, 'vlm_batch_size', 1),
+                lr=getattr(args, 'vlm_lr', 2e-5),
+                gradient_accumulation=getattr(args, 'vlm_gradient_accumulation', 4),
                 save_dir=str(output_dir),
                 name="vlm",
+                max_samples=args.vlm_max_samples,
             )
             results['vlm_adapter'] = vlm_results['best_adapter']
             results['vlm_loss_history'] = vlm_results.get('loss_history', [])

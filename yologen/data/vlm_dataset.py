@@ -24,12 +24,16 @@ class VLMDatasetGenerator:
     Example:
         generator = VLMDatasetGenerator("dataset.yaml")
         generator.generate(output_dir="vlm_data/")
+
+        # With external config
+        generator = VLMDatasetGenerator("dataset.yaml", vlm_config={...})
     """
 
     def __init__(
         self,
         data_yaml: str,
         box_thickness: int = 3,
+        vlm_config: Optional[Dict] = None,
     ):
         """
         Initialize generator.
@@ -37,6 +41,7 @@ class VLMDatasetGenerator:
         Args:
             data_yaml: Path to dataset.yaml
             box_thickness: Red box thickness in pixels
+            vlm_config: Optional VLM dataset config (overrides dataset.yaml settings)
         """
         self.data_yaml = Path(data_yaml)
         self.config = self._load_config()
@@ -49,10 +54,15 @@ class VLMDatasetGenerator:
         else:
             self.class_names = list(class_names)
 
-        # VLM dataset config
-        vlm_config = self.config.get('vlm_dataset', {})
+        # VLM dataset config - prefer external config, fallback to dataset.yaml
+        if vlm_config is None:
+            vlm_config = self.config.get('vlm_dataset', {})
+        self.vlm_config = vlm_config
+
         self.prompt_templates = vlm_config.get('prompts', [])
         self.class_details = vlm_config.get('details', {})
+        self.class_prompts = vlm_config.get('class_prompts', {})  # Class-specific prompts
+        self.qa_format = vlm_config.get('qa_format', 'descriptive')  # 'descriptive' or 'binary'
         self.box_thickness = vlm_config.get('box_thickness', box_thickness)
 
         # Box color - config uses BGR (OpenCV), we store RGB for PIL
@@ -298,50 +308,87 @@ class VLMDatasetGenerator:
                 return random.choice(self.class_details[class_name.lower()])
         return ""
 
+    def _fill_template(self, template: str, **kwargs) -> str:
+        """Fill template with placeholders."""
+        result = template
+        for key, value in kwargs.items():
+            result = result.replace(f"{{{key}}}", str(value))
+        return result
+
     def _generate_grounded_qa(self, class_name: str) -> List[Dict]:
-        """Generate grounded Q&A for single object."""
+        """Generate grounded Q&A for single object using templates from config."""
         qa = []
         c = class_name.lower()
         detail = self._get_detail(class_name)
 
-        qa.append({"q": "What is in the red marked area?", "a": f"There is a {c} in the red marked area."})
-        qa.append({"q": "What object is highlighted by the red box?", "a": f"The red box highlights a {c}."})
-        qa.append({"q": "Can you identify the object in the red rectangle?", "a": f"Yes, the object in the red rectangle is a {c}."})
-        qa.append({"q": f"Is there a {c} in the red marked area?", "a": f"Yes, there is a {c} in the red marked area."})
-        qa.append({"q": "What can you see inside the red bounding box?", "a": f"Inside the red bounding box, I can see a {c}."})
+        if not self.prompt_templates:
+            raise ValueError("No prompt templates defined in vlm_dataset.prompts config")
 
-        if detail:
-            qa.append({"q": "Describe what you see inside the red boundary.", "a": f"Inside the red boundary, I can see a {c}. {detail}"})
+        for tmpl in self.prompt_templates:
+            q_template = tmpl.get('question', '')
+            a_template = tmpl.get('answer', '')
 
-        # Negative examples
-        other = [n for n in self.class_names if n.lower() != c and n.lower() != 'unused']
-        for wrong in random.sample(other, min(2, len(other))):
-            qa.append({
-                "q": f"Is there a {wrong.lower()} in the red marked area?",
-                "a": f"No, there is no {wrong.lower()}. The red marked area contains a {c}."
+            # Skip templates that need multiple objects (global)
+            if '{objects}' in q_template or '{count_text}' in q_template:
+                continue
+
+            q = self._fill_template(q_template, **{
+                'class': c,
+                'detail': detail,
+                'yes_no': 'Yes',
+                'explanation': f'there is a {c} in the marked area',
             })
+            a = self._fill_template(a_template, **{
+                'class': c,
+                'detail': detail,
+                'yes_no': 'Yes',
+                'explanation': f'there is a {c} in the marked area',
+            })
+            if q and a and '{' not in q and '{' not in a:
+                qa.append({"q": q, "a": a})
 
         return qa
 
     def _generate_global_qa(self, class_counts: Dict[str, int]) -> List[Dict]:
-        """Generate global/image-level Q&A."""
+        """Generate global/image-level Q&A using templates from config."""
         qa = []
         objects = self._format_objects(class_counts)
         total = sum(class_counts.values())
+        count_text = f"{'is' if total == 1 else 'are'} {total} object{'s' if total > 1 else ''}"
 
-        qa.append({"q": "What objects are in this image?", "a": f"I can see {objects} in this image."})
-        qa.append({"q": "What objects are highlighted in the red boxes?", "a": f"The red boxes highlight {objects} in the image."})
-        qa.append({"q": "Describe what you see.", "a": f"The image contains {objects}."})
-        qa.append({"q": "How many objects are detected?", "a": f"There {'is' if total == 1 else 'are'} {total} object{'s' if total > 1 else ''} detected: {objects}."})
+        # Get detail for first class
+        first_class = list(class_counts.keys())[0] if class_counts else ''
+        detail = self._get_detail(first_class) if first_class else ''
 
-        for name, count in class_counts.items():
-            c = name.lower()
-            qa.append({"q": f"Is there a {c} in this image?", "a": f"Yes, there {'is' if count == 1 else 'are'} {count} {c}{'s' if count > 1 else ''} in this image."})
+        if not self.prompt_templates:
+            raise ValueError("No prompt templates defined in vlm_dataset.prompts config")
 
-        # Negative
-        absent = [n for n in self.class_names if n not in class_counts and n.lower() != 'unused']
-        for name in random.sample(absent, min(2, len(absent))):
-            qa.append({"q": f"Is there a {name.lower()} in this image?", "a": f"No, there is no {name.lower()} visible in this image."})
+        for tmpl in self.prompt_templates:
+            q_template = tmpl.get('question', '')
+            a_template = tmpl.get('answer', '')
+
+            # Only use templates that work with multiple objects
+            if '{class}' in q_template and '{objects}' not in q_template:
+                continue
+
+            q = self._fill_template(q_template, **{
+                'class': first_class,
+                'objects': objects,
+                'count_text': count_text,
+                'detail': detail,
+                'yes_no': 'Yes',
+                'explanation': f'there are {objects} in this image',
+            })
+            a = self._fill_template(a_template, **{
+                'class': first_class,
+                'objects': objects,
+                'count_text': count_text,
+                'detail': detail,
+                'yes_no': 'Yes',
+                'explanation': f'there are {objects} in this image',
+            })
+            if q and a and '{' not in q and '{' not in a:
+                qa.append({"q": q, "a": a})
 
         return qa
 
