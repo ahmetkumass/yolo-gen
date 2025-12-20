@@ -56,7 +56,25 @@ data/my_dataset/
 └── dataset.yaml
 ```
 
-### 3. Train (One Command)
+Example `dataset.yaml`:
+```yaml
+path: .  # Dataset root (relative to this file)
+train: images/train
+val: images/val
+
+names:
+  0: class_a
+  1: class_b
+```
+
+### 3. Configure
+
+Edit `configs/default.yaml` and set your dataset path:
+```yaml
+data: data/my_dataset/dataset.yaml
+```
+
+### 4. Train
 
 ```bash
 python train.py --config configs/default.yaml
@@ -69,7 +87,7 @@ This will:
 4. Export ONNX
 5. Generate visualizations
 
-### 4. Predict
+### 5. Predict
 
 ```bash
 # YOLO only
