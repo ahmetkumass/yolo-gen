@@ -97,9 +97,11 @@ data/*/vlm/
 *.bmp
 *.webp
 
-# Keep dataset.yaml configs
-!data/**/dataset.yaml
-!configs/*.yaml
+# User datasets (entire data folder)
+data/
+
+# Keep only default config template
+!configs/default.yaml
 
 # Logs
 *.log
