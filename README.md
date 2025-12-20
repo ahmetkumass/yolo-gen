@@ -112,13 +112,11 @@ yolo:
 # VLM settings
 vlm:
   enabled: true
-  # Options: Qwen2.5-VL-3B-Instruct (20GB) or Qwen2.5-VL-7B-Instruct (40GB)
-  model: Qwen/Qwen2.5-VL-7B-Instruct
+  model: Qwen/Qwen2.5-VL-7B-Instruct  # or 3B-Instruct
   epochs: 3
-  precision: 4bit           # QLoRA
-  max_samples: 10000        # Limit training samples (null = all)
-  lora_r: 64
-  gradient_accumulation: 8
+  precision: 4bit
+  max_samples: 10000
+  max_pixels: 1003520       # ~1000x1000, affects GPU memory
 
 # Visual grounding (red box)
 vlm_dataset:
@@ -134,10 +132,11 @@ vlm_dataset:
 ```
 runs/exp_20251217_xxx/
 ├── yolo/
-│   ├── weights/best.pt      # YOLO model
-│   └── weights/best.onnx    # ONNX export
+│   └── weights/
+│       ├── best.pt           # YOLO model
+│       └── best.onnx         # ONNX export
 ├── vlm/
-│   └── best/                # VLM adapter (~150MB)
+│   └── best/                 # VLM adapter (~150MB)
 └── visualizations/
     ├── training_curves.png
     └── prediction_samples.png
@@ -159,15 +158,14 @@ runs/exp_20251217_xxx/
 
 ### GPU Memory Usage
 
-| Task | VRAM | Hardware |
-|------|------|----------|
-| YOLO training | 4-8 GB | Any GPU |
-| VLM inference (4-bit) | ~12 GB | RTX 3090+ |
-| VLM training 3B (default) | ~22 GB | RTX 4090, A100 |
-| VLM training 7B (default) | ~27 GB | RTX 4090, A100 |
-| VLM training (high-res) | ~50-60 GB | A100-80GB, H100 |
+| Task | VRAM |
+|------|------|
+| YOLO training | 4-12 GB |
+| VLM training 3B (default) | ~22 GB |
+| VLM training 7B (default) | ~27 GB |
+| VLM training (high-res) | 50-60 GB |
 
-*VLM memory depends on `max_pixels` setting. Default ~1M pixels (~1000x1000). Increase `max_pixels` for quality, decrease for less memory.*
+*VLM memory depends on `max_pixels`. Default ~1M pixels. See config for presets.*
 
 ## Example Results
 
@@ -195,10 +193,11 @@ Minimum ~100 images for YOLO, ~500+ recommended for better VLM results.
 Yes. Set `vlm.enabled: false` in config, or just use `predict.py` without `--vlm` flag.
 
 **How much VRAM do I need?**
-- YOLO training: 4GB+
-- VLM inference (4-bit): 8-12GB
-- VLM training 3B (4-bit): 20GB+ (RTX 4090)
-- VLM training 7B (4-bit): 40GB+ (A100, H100)
+- YOLO training: 4-8GB
+- VLM inference (4-bit): ~12GB
+- VLM training 3B (default settings): ~22GB (RTX 4090)
+- VLM training 7B (default settings): ~27GB (RTX 4090, A100)
+- VLM training (high-res): 50-60GB (A100-80GB, H100)
 
 **How do I customize VLM responses?**
 Edit `system_prompt` and `details` under `vlm_dataset` section in your config file.
