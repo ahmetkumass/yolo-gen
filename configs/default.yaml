@@ -52,25 +52,32 @@ yolo:
 # ============================================================
 # VLM TRAINING (Vision-Language Model)
 # ============================================================
+# Memory requirements:
+#   - Training (4-bit): 40GB+ VRAM (A100, H100)
+#   - Training (fp16):  80GB+ VRAM (H100, A100-80GB)
+#   - Inference (4-bit): 12GB+ VRAM (RTX 4090, etc.)
 vlm:
   enabled: true
+  # Model options:
+  #   Qwen/Qwen2.5-VL-3B-Instruct  - 3B params, ~20GB VRAM (RTX 4090)
+  #   Qwen/Qwen2.5-VL-7B-Instruct  - 7B params, ~40GB VRAM (A100, H100)
   model: Qwen/Qwen2.5-VL-7B-Instruct
 
   # Training
   epochs: 3
-  batch_size: 1                   # Keep at 1 for 8-16GB VRAM
+  batch_size: 1                   # Keep at 1 (higher = 2x memory per step)
   lr: 0.00002
-  precision: 4bit                 # 4bit for <16GB, 8bit for 16-24GB
+  precision: 4bit                 # 4bit required for <80GB VRAM
   max_samples: 10000              # Limit samples (null = use all)
 
   # LoRA (Low-Rank Adaptation)
-  lora_r: 64                      # Rank: 16/32/64/128
+  lora_r: 64                      # 32/64/128 - minimal memory impact
   lora_alpha: 16
   lora_dropout: 0.05
 
   # Memory optimization
-  gradient_checkpointing: true
-  gradient_accumulation: 8        # Increase if OOM, effective_batch = batch * accumulation
+  gradient_checkpointing: true    # Required - saves ~20-30GB
+  gradient_accumulation: 4        # No memory impact, effective_batch = batch * this
 
 # ============================================================
 # VLM DATASET GENERATION

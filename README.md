@@ -1,12 +1,12 @@
 # YoloGen
 
-**Detect objects → Describe them in natural language. One pipeline.**
+**Train YOLO + VLM with one command. No extra labeling.**
 
 ```
-Input Image → YOLO finds "defect" → Model describes "2mm crack on solder joint"
+Image + YOLO labels → Auto-generate VLM training data → Fine-tuned model
 ```
 
-Object detectors give you **where**, but not **what**. Vision models are too slow for production. YoloGen combines both: YOLO finds objects fast, then a local model describes them. Training data is auto-generated — no extra labeling needed.
+Train object detection and natural language description models from a standard YOLO dataset. VLM training data is auto-generated from YOLO labels.
 
 ## Real-World Scenarios
 
@@ -59,7 +59,7 @@ data/my_dataset/
 ### 3. Train (One Command)
 
 ```bash
-python train.py --config configs/car_detection.yaml
+python train.py --config configs/default.yaml
 ```
 
 This will:
@@ -80,9 +80,27 @@ python predict.py --weights runs/exp_xxx/yolo/weights/best.pt --source image.jpg
     --vlm --vlm-adapter runs/exp_xxx/vlm/best
 ```
 
+### Python API
+
+```python
+from yologen.core.predictor import YOLOPredictor, VLMPredictor, UnifiedPredictor
+
+# YOLO only
+yolo = YOLOPredictor(weights="best.pt")
+results = yolo.predict("image.jpg")
+
+# VLM only (for images with existing bounding boxes)
+vlm = VLMPredictor(vlm_adapter="vlm/best")
+answer = vlm.predict(image="image.jpg", bbox=[100, 100, 300, 300], question="What is this?")
+
+# YOLO + VLM combined
+predictor = UnifiedPredictor(yolo_weights="best.pt", vlm_adapter="vlm/best")
+results = predictor.predict(source="image.jpg", vlm_question="What is in the red box?")
+```
+
 ## Configuration
 
-Edit `configs/car_detection.yaml`:
+Copy and edit `configs/default.yaml`:
 
 ```yaml
 # YOLO settings
@@ -94,13 +112,17 @@ yolo:
 # VLM settings
 vlm:
   enabled: true
+  # Options: Qwen2.5-VL-3B-Instruct (20GB) or Qwen2.5-VL-7B-Instruct (40GB)
   model: Qwen/Qwen2.5-VL-7B-Instruct
   epochs: 3
-  precision: 4bit  # QLoRA
+  precision: 4bit           # QLoRA
+  max_samples: 10000        # Limit training samples (null = all)
+  lora_r: 64
+  gradient_accumulation: 8
 
 # Visual grounding (red box)
 vlm_dataset:
-  box_color: [0, 0, 255]  # BGR Red
+  box_color: [0, 0, 255]    # BGR Red
   box_thickness: 3
   system_prompt: |
     You are an object detection assistant.
@@ -127,15 +149,17 @@ runs/exp_20251217_xxx/
 |---------|-------------|
 | Single Config | One YAML controls everything |
 | Sequential Training | YOLO → VLM automatically |
-| QLoRA | 7B VLM fits in 8GB VRAM |
+| QLoRA | 7B VLM training with 4-bit quantization |
 | Visual Grounding | Red boxes link detection to VLM |
 | Configurable | Colors, prompts, models all in YAML |
 
 ## Requirements
 
 - Python 3.10+
-- CUDA GPU (8GB+ VRAM recommended)
-- For VLM: A100/RTX 3090 or better
+- YOLO training: 4GB+ VRAM
+- VLM inference: 8GB+ VRAM
+- VLM training (3B): 20GB+ VRAM (RTX 4090)
+- VLM training (7B): 40GB+ VRAM (A100, H100)
 
 ## Example Results
 
@@ -163,12 +187,13 @@ Minimum ~100 images for YOLO, ~500+ recommended for better VLM results.
 Yes. Set `vlm.enabled: false` in config, or just use `predict.py` without `--vlm` flag.
 
 **How much VRAM do I need?**
-- YOLO only: 4GB+
-- YOLO + VLM (4-bit): 8GB+ (RTX 3060 works)
-- YOLO + VLM (fp16): 24GB+ (A100/RTX 3090)
+- YOLO training: 4GB+
+- VLM inference (4-bit): 8-12GB
+- VLM training 3B (4-bit): 20GB+ (RTX 4090)
+- VLM training 7B (4-bit): 40GB+ (A100, H100)
 
 **How do I customize VLM responses?**
-Edit `system_prompt` and `details` under `vlm_dataset` section in your config file (e.g., `configs/car_detection.yaml`).
+Edit `system_prompt` and `details` under `vlm_dataset` section in your config file.
 
 ## License
 
