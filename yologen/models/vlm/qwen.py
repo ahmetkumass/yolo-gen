@@ -32,6 +32,8 @@ class QwenVLM:
         lora_target_modules: List[str] = None,
         gradient_checkpointing: bool = True,
         device: str = "",
+        min_pixels: int = 256 * 28 * 28,
+        max_pixels: int = 1280 * 28 * 28,
     ):
         """
         Initialize Qwen VLM.
@@ -47,6 +49,8 @@ class QwenVLM:
             lora_target_modules: Modules to apply LoRA (default: q_proj, v_proj)
             gradient_checkpointing: Enable gradient checkpointing
             device: Device to use
+            min_pixels: Minimum image pixels (default: 256*28*28 = 200704, ~450x450)
+            max_pixels: Maximum image pixels (default: 1280*28*28 = 1003520, ~1000x1000)
         """
         self.model_name = model_name
         self.load_in_4bit = load_in_4bit
@@ -57,6 +61,8 @@ class QwenVLM:
         self.lora_dropout = lora_dropout
         self.lora_target_modules = lora_target_modules or ["q_proj", "v_proj", "k_proj", "o_proj"]
         self.gradient_checkpointing = gradient_checkpointing
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
 
         if device:
             self.device = device
@@ -113,11 +119,14 @@ class QwenVLM:
             **model_kwargs,
         )
 
-        # Load processor
+        # Load processor with image size limits
         self.processor = AutoProcessor.from_pretrained(
             self.model_name,
             trust_remote_code=True,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
         )
+        print(f"Image pixels: min={self.min_pixels}, max={self.max_pixels}")
         self.tokenizer = self.processor.tokenizer
 
         # Prepare for training
@@ -387,6 +396,8 @@ def create_qwen_vlm(
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
     gradient_checkpointing: bool = True,
+    min_pixels: int = 256 * 28 * 28,
+    max_pixels: int = 1280 * 28 * 28,
     **kwargs,
 ) -> QwenVLM:
     """
@@ -403,6 +414,8 @@ def create_qwen_vlm(
         lora_alpha: LoRA alpha
         lora_dropout: LoRA dropout
         gradient_checkpointing: Enable gradient checkpointing
+        min_pixels: Minimum image pixels (default ~450x450)
+        max_pixels: Maximum image pixels (default ~1000x1000)
 
     Returns:
         QwenVLM instance
@@ -416,5 +429,7 @@ def create_qwen_vlm(
         lora_alpha=lora_alpha,
         lora_dropout=lora_dropout,
         gradient_checkpointing=gradient_checkpointing,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
         **kwargs,
     )

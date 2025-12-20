@@ -52,20 +52,30 @@ yolo:
 # ============================================================
 # VLM TRAINING (Vision-Language Model)
 # ============================================================
-# Memory requirements:
-#   - Training (4-bit): 40GB+ VRAM (A100, H100)
-#   - Training (fp16):  80GB+ VRAM (H100, A100-80GB)
-#   - Inference (4-bit): 12GB+ VRAM (RTX 4090, etc.)
+# GPU Memory depends on max_pixels setting:
+#   - Default (max_pixels ~1M): 3B=22GB, 7B=27GB
+#   - High-res (max_pixels ~3M): 3B=50GB, 7B=60GB
+#   - Inference (4-bit): ~12GB
 vlm:
   enabled: true
   # Model options:
-  #   Qwen/Qwen2.5-VL-3B-Instruct  - 3B params, ~20GB VRAM (RTX 4090)
-  #   Qwen/Qwen2.5-VL-7B-Instruct  - 7B params, ~40GB VRAM (A100, H100)
+  #   Qwen/Qwen2.5-VL-3B-Instruct  - 3B params
+  #   Qwen/Qwen2.5-VL-7B-Instruct  - 7B params
   model: Qwen/Qwen2.5-VL-7B-Instruct
 
   # Training
   epochs: 3
   batch_size: 1                   # Keep at 1 (higher = 2x memory per step)
+
+  # Image size - MAJOR impact on GPU memory
+  # Aspect ratio is preserved automatically
+  # Presets (pick based on your GPU and use case):
+  #   - Small objects/details: max_pixels: 2073600  (1920x1080, ~50-60GB)
+  #   - High quality:          max_pixels: 1503520  (1280x1280, ~35-40GB)
+  #   - Default (balanced):    max_pixels: 1003520  (1000x1000, ~22-27GB)
+  #   - Low memory:            max_pixels: 512000   (700x700, ~15-18GB)
+  min_pixels: 200704              # ~450x450
+  max_pixels: 1003520             # ~1000x1000 (default, RTX 4090 compatible)
   lr: 0.00002
   precision: 4bit                 # 4bit required for <80GB VRAM
   max_samples: 10000              # Limit samples (null = use all)

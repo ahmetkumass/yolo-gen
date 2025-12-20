@@ -86,6 +86,8 @@ class VLMTrainer:
         lora_dropout: float = 0.05,
         gradient_checkpointing: bool = True,
         device: str = "",
+        min_pixels: int = 256 * 28 * 28,
+        max_pixels: int = 1280 * 28 * 28,
     ):
         """
         Initialize VLM trainer.
@@ -98,6 +100,8 @@ class VLMTrainer:
             lora_dropout: LoRA dropout
             gradient_checkpointing: Enable gradient checkpointing
             device: Device to use
+            min_pixels: Min image pixels (default ~450x450)
+            max_pixels: Max image pixels (default ~1000x1000, reduces GPU memory)
         """
         self.model_name = model
         self.precision = precision
@@ -106,6 +110,8 @@ class VLMTrainer:
         self.lora_dropout = lora_dropout
         self.gradient_checkpointing = gradient_checkpointing
         self.device = device
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
 
         self.vlm = None
         self.best_adapter = None
@@ -132,6 +138,8 @@ class VLMTrainer:
                 lora_alpha=self.lora_alpha,
                 lora_dropout=self.lora_dropout,
                 gradient_checkpointing=self.gradient_checkpointing,
+                min_pixels=self.min_pixels,
+                max_pixels=self.max_pixels,
             )
             self.vlm.load_model()
             self.vlm.print_trainable_parameters()

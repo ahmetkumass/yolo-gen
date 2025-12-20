@@ -156,10 +156,18 @@ runs/exp_20251217_xxx/
 ## Requirements
 
 - Python 3.10+
-- YOLO training: 4GB+ VRAM
-- VLM inference: 8GB+ VRAM
-- VLM training (3B): 20GB+ VRAM (RTX 4090)
-- VLM training (7B): 40GB+ VRAM (A100, H100)
+
+### GPU Memory Usage
+
+| Task | VRAM | Hardware |
+|------|------|----------|
+| YOLO training | 4-8 GB | Any GPU |
+| VLM inference (4-bit) | ~12 GB | RTX 3090+ |
+| VLM training 3B (default) | ~22 GB | RTX 4090, A100 |
+| VLM training 7B (default) | ~27 GB | RTX 4090, A100 |
+| VLM training (high-res) | ~50-60 GB | A100-80GB, H100 |
+
+*VLM memory depends on `max_pixels` setting. Default ~1M pixels (~1000x1000). Increase `max_pixels` for quality, decrease for less memory.*
 
 ## Example Results
 

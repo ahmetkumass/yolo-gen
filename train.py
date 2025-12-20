@@ -82,6 +82,9 @@ def main():
         args.vlm_lora_alpha = vlm_cfg.get('lora_alpha', 16)
         args.vlm_lora_dropout = vlm_cfg.get('lora_dropout', 0.05)
         args.vlm_gradient_checkpointing = vlm_cfg.get('gradient_checkpointing', True)
+        # Image size (affects GPU memory significantly)
+        args.vlm_min_pixels = vlm_cfg.get('min_pixels', 256 * 28 * 28)
+        args.vlm_max_pixels = vlm_cfg.get('max_pixels', 1280 * 28 * 28)
 
     if not args.data:
         parser.error("--data or --config required")
@@ -190,6 +193,8 @@ def main():
                 lora_alpha=getattr(args, 'vlm_lora_alpha', 16),
                 lora_dropout=getattr(args, 'vlm_lora_dropout', 0.05),
                 gradient_checkpointing=getattr(args, 'vlm_gradient_checkpointing', True),
+                min_pixels=getattr(args, 'vlm_min_pixels', 256 * 28 * 28),
+                max_pixels=getattr(args, 'vlm_max_pixels', 1280 * 28 * 28),
             )
             vlm_results = trainer.train(
                 data=str(vlm_data_dir),
