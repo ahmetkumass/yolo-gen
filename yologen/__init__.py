@@ -23,16 +23,16 @@ Example:
     from yologen import predict
     results = predict(weights="best.pt", source="image.jpg")
 
-Apache-2.0 License
+MIT License
 """
 
-__version__ = "1.0.0"
+__version__ = "0.1.0"
 __author__ = "YoloGen Contributors"
-__license__ = "Apache-2.0"
+__license__ = "MIT"
 
 from yologen.core.trainer import YOLOTrainer, train_yolo
 from yologen.core.vlm_trainer import VLMTrainer, train_vlm
-from yologen.core.predictor import YOLOPredictor, UnifiedPredictor, predict
+from yologen.core.predictor import YOLOPredictor, VLMPredictor, UnifiedPredictor, predict
 from yologen.data.vlm_dataset import VLMDatasetGenerator, generate_vlm_dataset
 
 __all__ = [
@@ -45,6 +45,7 @@ __all__ = [
     "train_vlm",
     # Predictors
     "YOLOPredictor",
+    "VLMPredictor",
     "UnifiedPredictor",
     "predict",
     # Data
