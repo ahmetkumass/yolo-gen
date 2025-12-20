@@ -1,0 +1,125 @@
+# YoloGen: Weapon Detection (Rifle & Handgun)
+# Usage: python train.py --config configs/weapon_detection.yaml
+#
+# Classes: rifle, handgun
+# Optimized for CCTV/security footage
+
+# ============================================================
+# DATASET
+# ============================================================
+data: data/weapon_detection/dataset.yaml
+
+# ============================================================
+# YOLO TRAINING
+# ============================================================
+yolo:
+  model: yolov8m.pt                # Medium model - better for small objects like weapons
+  epochs: 150                      # More epochs for challenging detection
+  batch: 16
+  imgsz: 640
+
+  # Optimizer
+  optimizer: auto
+  lr0: 0.01
+  lrf: 0.01
+  momentum: 0.937
+  weight_decay: 0.0005
+  warmup_epochs: 5
+
+  # Loss weights
+  box: 7.5
+  cls: 1.0                         # Higher cls weight - distinguishing rifle vs handgun
+  dfl: 1.5
+
+  # Augmentation (conservative for weapon shapes)
+  hsv_h: 0.015
+  hsv_s: 0.5
+  hsv_v: 0.3
+  degrees: 10.0
+  translate: 0.15
+  scale: 0.4
+  fliplr: 0.5
+  mosaic: 0.8
+  mixup: 0.1
+  erasing: 0.3
+  close_mosaic: 15
+
+  # Early stopping
+  patience: 50
+
+# ============================================================
+# VLM TRAINING (Vision-Language Model)
+# ============================================================
+vlm:
+  enabled: true
+  model: Qwen/Qwen2.5-VL-7B-Instruct
+  epochs: 3
+  batch_size: 1
+  lr: 0.00002
+  precision: 4bit
+  max_samples: 10000              # Limit training samples (None = use all)
+
+  # LoRA parameters
+  lora_r: 64
+  lora_alpha: 16
+  lora_dropout: 0.05
+
+  # Memory optimization
+  gradient_checkpointing: true
+  gradient_accumulation: 4
+
+# ============================================================
+# VLM DATASET GENERATION
+# ============================================================
+vlm_dataset:
+  box_color: [0, 0, 255]           # BGR Red
+  box_thickness: 3
+
+  system_prompt: |
+    You are a weapon detection assistant for security camera footage.
+    When shown an image with a red bounding box, analyze the marked area
+    and identify if there is a weapon present.
+
+  # Custom prompt templates
+  # Placeholders: {class}, {objects}, {count_text}, {yes_no}, {explanation}, {detail}
+  prompts:
+    - question: "What type of weapon is in the red marked area?"
+      answer: "The red marked area contains a {class}. {detail}"
+
+    - question: "Is there a weapon in the red bounding box?"
+      answer: "{yes_no}, {explanation}."
+
+    - question: "Describe the object inside the red rectangle."
+      answer: "Inside the red rectangle, I can see a {class}. {detail}"
+
+    - question: "What can you identify in the highlighted area?"
+      answer: "The highlighted area shows a {class}."
+
+    - question: "Is the marked object a firearm?"
+      answer: "Yes, the marked object is a {class}, which is a firearm."
+
+    - question: "Analyze the red bounding box content."
+      answer: "The red bounding box contains a {class}. {detail}"
+
+  # Class-specific descriptions
+  details:
+    rifle:
+      - "This is a long gun (rifle or shotgun) with visible stock and barrel."
+      - "The weapon is a rifle with elongated shape extending from the person."
+      - "A long gun is visible - note the shoulder stock and long barrel."
+      - "This appears to be a rifle based on its elongated silhouette."
+      - "The long gun has characteristic features: stock, barrel, and handguard."
+
+    handgun:
+      - "This is a handgun (pistol) with visible grip and short barrel."
+      - "The weapon is a pistol/revolver held in a weapon-like grip."
+      - "A handgun is visible - note the L-shaped profile with grip and barrel."
+      - "This appears to be a pistol based on its compact shape."
+      - "The handgun has characteristic features: grip, trigger guard, and short barrel."
+
+# ============================================================
+# OUTPUT
+# ============================================================
+output:
+  save_dir: runs
+  export_onnx: true

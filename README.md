@@ -193,11 +193,7 @@ Minimum ~100 images for YOLO, ~500+ recommended for better VLM results.
 Yes. Set `vlm.enabled: false` in config, or just use `predict.py` without `--vlm` flag.
 
 **How much VRAM do I need?**
-- YOLO training: 4-8GB
-- VLM inference (4-bit): ~12GB
-- VLM training 3B (default settings): ~22GB (RTX 4090)
-- VLM training 7B (default settings): ~27GB (RTX 4090, A100)
-- VLM training (high-res): 50-60GB (A100-80GB, H100)
+See [GPU Memory Usage](#gpu-memory-usage) table above. RTX 4090 (24GB) can train both 3B and 7B models with default settings.
 
 **How do I customize VLM responses?**
 Edit `system_prompt` and `details` under `vlm_dataset` section in your config file.
