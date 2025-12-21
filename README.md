@@ -8,25 +8,22 @@ Image + YOLO labels → Auto-generate VLM training data → Fine-tuned model
 
 Train object detection and natural language description models from a standard YOLO dataset. VLM training data is auto-generated from YOLO labels.
 
-## Real-World Scenarios
+## Use Cases
 
-| Scenario | YOLO Detects | VLM Describes |
-|----------|--------------|---------------|
-| **Quality Control** | Defect location | "Surface scratch, 2mm length, located on edge" |
-| **Security** | Person, vehicle | "Person near entrance, wearing dark hoodie, carrying backpack" |
-| **Medical** | Lesion area | "6mm nodule with irregular borders, darker pigmentation" |
-| **Retail** | Product on shelf | "2 items remaining on shelf, front row empty" |
-| **Agriculture** | Crop, pest | "Small green insects on leaf underside, early cluster" |
-| **False Positive Filter** | "Person" (conf: 0.6) | "This is a mannequin, not a real person" → filtered out |
+YOLO localizes objects (bbox) → VLM analyzes and returns structured response:
 
-## What It Does
+| Scenario | VLM Response |
+|----------|--------------|
+| **Defect Detection** | `{"defect": true, "type": "scratch", "size": "2mm"}` |
+| **Weapon Detection** | `{"weapon": true, "type": "rifle"}` |
+| **Vehicle Damage** | `{"damaged": true, "part": "front bumper"}` |
+| **Medical Imaging** | `{"finding": true, "type": "nodule", "size": "6mm"}` |
 
-```
-Image → YOLO → "defect at [x1,y1,x2,y2]" → VLM → "Crack in solder joint, 1.5mm, critical defect"
-```
+## Why YOLO + VLM?
 
-- **YOLO**: Finds WHERE (fast, accurate bounding boxes)
-- **VLM**: Explains WHAT (domain-specific natural language)
+- **YOLO alone**: Fast but not enough for production-level accuracy
+- **VLM alone**: Smart but too slow for production
+- **YOLO + VLM**: Fast detection + VLM adds detailed descriptions, classification, and false positive filtering
 
 ## Built With
 
@@ -187,16 +184,16 @@ runs/exp_20251217_xxx/
 
 ## Example Results
 
-**Input**: Image with vehicles
+**Input**: Product image from assembly line
 
 **YOLO Output**:
 ```
-[car] conf=0.85 bbox=[27, 192, 129, 237]
+[defect] conf=0.92 bbox=[120, 340, 280, 520]
 ```
 
 **VLM Output**:
-```
-There is a car in the red marked area. The vehicle appears to be a passenger car.
+```json
+{"defect": true, "type": "scratch", "size": "3mm"}
 ```
 
 ## FAQ
