@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import gc
+import json
 import yaml
 from pathlib import Path
 from datetime import datetime
@@ -40,7 +41,7 @@ def main():
 
     # VLM
     parser.add_argument("--vlm", action="store_true", help="Enable VLM training")
-    parser.add_argument("--vlm-model", type=str, default="Qwen/Qwen2.5-VL-7B-Instruct")
+    parser.add_argument("--vlm-model", type=str, default="Qwen/Qwen3-VL-4B-Instruct")
     parser.add_argument("--vlm-epochs", type=int, default=3)
     parser.add_argument("--vlm-precision", type=str, default="4bit")
     parser.add_argument("--vlm-max-samples", type=int, default=None, help="Max training samples for VLM")
@@ -180,6 +181,7 @@ def main():
         if not ds_root.is_absolute():
             ds_root = data_path.parent / ds_root
         vlm_data_dir = ds_root / 'vlm'
+        results['vlm_data_dir'] = str(vlm_data_dir)
 
         if not (vlm_data_dir / 'train.jsonl').exists():
             print(f"VLM data not found at {vlm_data_dir}")
@@ -265,11 +267,35 @@ def main():
                     results['visualizations'] = {}
                 results['visualizations']['vlm_loss'] = loss_plot
 
+    # ==================== SAVE EXPERIMENT CONFIG ====================
+    exp_config = {
+        "dataset": str(data_path),
+        "output_dir": str(output_dir),
+        "yolo": {
+            "model": args.model,
+            "epochs": args.epochs,
+            "batch": args.batch,
+            "imgsz": args.imgsz,
+            "weights": results.get('yolo_weights'),
+        },
+        "vlm": {
+            "enabled": args.vlm,
+            "model": args.vlm_model if args.vlm else None,
+            "precision": args.vlm_precision if args.vlm else None,
+            "data_dir": results.get('vlm_data_dir'),
+            "adapter": results.get('vlm_adapter'),
+        },
+    }
+    config_path = output_dir / "config.json"
+    with open(config_path, 'w') as f:
+        json.dump(exp_config, f, indent=2)
+
     # ==================== SUMMARY ====================
     print("\n" + "=" * 60)
     print("  Training Complete!")
     print("=" * 60)
     print(f"Output: {output_dir}")
+    print(f"Config: {config_path}")
     if results.get('yolo_weights'):
         print(f"YOLO: {results['yolo_weights']}")
     if results.get('vlm_adapter'):
