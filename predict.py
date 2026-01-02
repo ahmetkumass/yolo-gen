@@ -34,7 +34,7 @@ def main():
 
     # VLM settings
     parser.add_argument("--vlm", action="store_true", help="Enable VLM Q&A")
-    parser.add_argument("--vlm-model", type=str, default="Qwen/Qwen2.5-VL-7B-Instruct")
+    parser.add_argument("--vlm-model", type=str, default="Qwen/Qwen3-VL-4B-Instruct")
     parser.add_argument("--vlm-adapter", type=str, help="VLM adapter path")
     parser.add_argument("--vlm-precision", type=str, default="4bit")
     parser.add_argument("--vlm-question", type=str, default="What is in the red marked area?")

@@ -135,7 +135,7 @@ yolo:
 # VLM settings
 vlm:
   enabled: true
-  # Qwen 3 VL (recommended): 2B, 4B, 8B (Instruct or Thinking)
+  # Qwen 3 VL (recommended): 2B, 4B, 8B
   # Qwen 2.5 VL: 3B, 7B
   model: Qwen/Qwen3-VL-4B-Instruct
   epochs: 3

@@ -18,9 +18,7 @@ pyyaml>=6.0
 tqdm>=4.65.0
 
 # VLM (optional - install if using VLM features)
-# For Qwen3-VL: requires transformers from source (pip install git+https://github.com/huggingface/transformers)
-# For Qwen2.5-VL: transformers>=4.37.0 is sufficient
-transformers>=4.45.0
+transformers>=4.57.0
 accelerate>=0.25.0
 peft>=0.7.0
 bitsandbytes>=0.41.0

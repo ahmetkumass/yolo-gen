@@ -39,7 +39,7 @@ Examples:
 
     # VLM
     parser.add_argument("--vlm", action="store_true", help="Enable VLM training")
-    parser.add_argument("--vlm-model", type=str, default="Qwen/Qwen2.5-VL-7B-Instruct")
+    parser.add_argument("--vlm-model", type=str, default="Qwen/Qwen3-VL-4B-Instruct")
     parser.add_argument("--vlm-epochs", type=int, default=3, help="VLM epochs")
     parser.add_argument("--vlm-precision", type=str, default="4bit", choices=["4bit", "8bit", "fp16"])
 

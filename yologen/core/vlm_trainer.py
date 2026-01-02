@@ -364,8 +364,7 @@ def train_vlm(
 
     Supported models:
         Qwen 2.5 VL: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct
-        Qwen 3 VL: Qwen/Qwen3-VL-2B-Instruct, Qwen/Qwen3-VL-4B-Instruct,
-                   Qwen/Qwen3-VL-8B-Instruct (and Thinking variants)
+        Qwen 3 VL: Qwen/Qwen3-VL-2B-Instruct, Qwen/Qwen3-VL-4B-Instruct, Qwen/Qwen3-VL-8B-Instruct
 
     Args:
         data: Path to VLM data directory

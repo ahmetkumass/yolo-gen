@@ -10,11 +10,8 @@ Supported models:
 
     Qwen 3 VL:
         - Qwen/Qwen3-VL-2B-Instruct
-        - Qwen/Qwen3-VL-2B-Thinking
         - Qwen/Qwen3-VL-4B-Instruct
-        - Qwen/Qwen3-VL-4B-Thinking
         - Qwen/Qwen3-VL-8B-Instruct
-        - Qwen/Qwen3-VL-8B-Thinking
 """
 
 from pathlib import Path
@@ -65,7 +62,7 @@ class QwenVLM:
 
     def __init__(
         self,
-        model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        model_name: str = "Qwen/Qwen3-VL-4B-Instruct",
         load_in_4bit: bool = True,
         load_in_8bit: bool = False,
         use_lora: bool = True,
@@ -474,7 +471,7 @@ class QwenVLM:
 
 
 def create_qwen_vlm(
-    model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+    model_name: str = "Qwen/Qwen3-VL-4B-Instruct",
     load_in_4bit: bool = True,
     load_in_8bit: bool = False,
     use_lora: bool = True,
@@ -494,9 +491,7 @@ def create_qwen_vlm(
 
     Supported models:
         Qwen 2.5 VL: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct
-        Qwen 3 VL: Qwen/Qwen3-VL-2B-Instruct, Qwen/Qwen3-VL-2B-Thinking,
-                   Qwen/Qwen3-VL-4B-Instruct, Qwen/Qwen3-VL-4B-Thinking,
-                   Qwen/Qwen3-VL-8B-Instruct, Qwen/Qwen3-VL-8B-Thinking
+        Qwen 3 VL: Qwen/Qwen3-VL-2B-Instruct, Qwen/Qwen3-VL-4B-Instruct, Qwen/Qwen3-VL-8B-Instruct
 
     Args:
         model_name: HuggingFace model name
