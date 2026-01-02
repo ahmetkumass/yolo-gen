@@ -28,7 +28,7 @@ YOLO localizes objects (bbox) → VLM analyzes and returns structured response:
 ## Built With
 
 - [Ultralytics YOLOv8/v11](https://github.com/ultralytics/ultralytics) - State-of-the-art YOLO implementation
-- [Qwen2.5-VL](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) - Vision-Language Model (more VLMs coming soon)
+- [Qwen2.5-VL](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) / [Qwen3-VL](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) - Vision-Language Models
 - [PEFT/QLoRA](https://github.com/huggingface/peft) - Parameter-efficient fine-tuning
 
 ## Quick Start
@@ -95,6 +95,14 @@ python predict.py --weights runs/exp_xxx/yolo/weights/best.pt --source image.jpg
     --vlm --vlm-adapter runs/exp_xxx/vlm/best
 ```
 
+### 6. Evaluate (Compare Base vs Fine-tuned)
+
+```bash
+jupyter notebook examples/compare_vlm.ipynb
+```
+
+Compare your fine-tuned VLM against the base model to measure improvements.
+
 ### Python API
 
 ```python
@@ -127,11 +135,13 @@ yolo:
 # VLM settings
 vlm:
   enabled: true
-  model: Qwen/Qwen2.5-VL-7B-Instruct  # or 3B-Instruct
+  # Qwen 3 VL (recommended): 2B, 4B, 8B (Instruct or Thinking)
+  # Qwen 2.5 VL: 3B, 7B
+  model: Qwen/Qwen3-VL-4B-Instruct
   epochs: 3
   precision: 4bit
   max_samples: 10000
-  max_pixels: 1003520       # ~1000x1000, affects GPU memory
+  # max_pixels: auto-calculated based on model version
 
 # Visual grounding (red box)
 vlm_dataset:
@@ -176,11 +186,11 @@ runs/exp_20251217_xxx/
 | Task | VRAM |
 |------|------|
 | YOLO training | 4-12 GB |
-| VLM training 3B (default) | ~22 GB |
-| VLM training 7B (default) | ~27 GB |
-| VLM training (high-res) | 50-60 GB |
+| VLM 2B-3B | ~14-18 GB |
+| VLM 4B | ~18-20 GB |
+| VLM 7B-8B | ~24-28 GB |
 
-*VLM memory depends on `max_pixels`. Default ~1M pixels. See config for presets.*
+*VLM memory depends on `max_pixels` setting. Values above are for 4-bit QLoRA with default pixel settings.*
 
 ## Example Results
 

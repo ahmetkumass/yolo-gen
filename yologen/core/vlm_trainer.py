@@ -71,37 +71,44 @@ class VLMTrainer:
     """
     VLM Trainer with QLoRA support.
 
+    Supports both Qwen 2.5 VL and Qwen 3 VL model families.
+
     Example:
+        # Qwen 3 VL (recommended)
+        trainer = VLMTrainer(model="Qwen/Qwen3-VL-4B-Instruct")
+
+        # Qwen 2.5 VL
         trainer = VLMTrainer(model="Qwen/Qwen2.5-VL-7B-Instruct")
+
         trainer.train(data="vlm_data/", epochs=3)
         trainer.save("adapter/")
     """
 
     def __init__(
         self,
-        model: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        model: str = "Qwen/Qwen3-VL-4B-Instruct",
         precision: str = "4bit",
         lora_r: int = 64,
         lora_alpha: int = 16,
         lora_dropout: float = 0.05,
         gradient_checkpointing: bool = True,
         device: str = "",
-        min_pixels: int = 256 * 28 * 28,
-        max_pixels: int = 1280 * 28 * 28,
+        min_pixels: int = None,
+        max_pixels: int = None,
     ):
         """
         Initialize VLM trainer.
 
         Args:
-            model: HuggingFace model name
+            model: HuggingFace model name (Qwen2.5-VL or Qwen3-VL)
             precision: Quantization (4bit, 8bit, fp16)
             lora_r: LoRA rank
             lora_alpha: LoRA alpha
             lora_dropout: LoRA dropout
             gradient_checkpointing: Enable gradient checkpointing
             device: Device to use
-            min_pixels: Min image pixels (default ~450x450)
-            max_pixels: Max image pixels (default ~1000x1000, reduces GPU memory)
+            min_pixels: Min image pixels (auto-calculated if None)
+            max_pixels: Max image pixels (auto-calculated if None)
         """
         self.model_name = model
         self.precision = precision
@@ -345,7 +352,7 @@ class VLMTrainer:
 
 def train_vlm(
     data: str,
-    model: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+    model: str = "Qwen/Qwen3-VL-4B-Instruct",
     epochs: int = 3,
     precision: str = "4bit",
     lora_r: int = 64,
@@ -354,6 +361,11 @@ def train_vlm(
 ) -> Dict[str, Any]:
     """
     Train VLM (convenience function).
+
+    Supported models:
+        Qwen 2.5 VL: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct
+        Qwen 3 VL: Qwen/Qwen3-VL-2B-Instruct, Qwen/Qwen3-VL-4B-Instruct,
+                   Qwen/Qwen3-VL-8B-Instruct (and Thinking variants)
 
     Args:
         data: Path to VLM data directory

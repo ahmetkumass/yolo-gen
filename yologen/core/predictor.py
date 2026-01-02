@@ -124,7 +124,7 @@ class VLMPredictor:
 
     def __init__(
         self,
-        vlm_model: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        vlm_model: str = "Qwen/Qwen3-VL-4B-Instruct",
         vlm_adapter: str = None,
         vlm_precision: str = "4bit",
         device: str = "",
@@ -135,7 +135,7 @@ class VLMPredictor:
         Initialize VLM-only predictor.
 
         Args:
-            vlm_model: VLM model name
+            vlm_model: VLM model name (Qwen2.5-VL or Qwen3-VL)
             vlm_adapter: Path to VLM adapter (fine-tuned weights)
             vlm_precision: VLM precision (4bit, 8bit, fp16)
             device: Device to use
@@ -291,7 +291,7 @@ class UnifiedPredictor:
     def __init__(
         self,
         yolo_weights: str,
-        vlm_model: str = "Qwen/Qwen2.5-VL-7B-Instruct",
+        vlm_model: str = "Qwen/Qwen3-VL-4B-Instruct",
         vlm_adapter: str = None,
         vlm_precision: str = "4bit",
         device: str = "",
@@ -303,7 +303,7 @@ class UnifiedPredictor:
 
         Args:
             yolo_weights: Path to YOLO weights
-            vlm_model: VLM model name
+            vlm_model: VLM model name (Qwen2.5-VL or Qwen3-VL)
             vlm_adapter: Path to VLM adapter
             vlm_precision: VLM precision (4bit, 8bit, fp16)
             device: Device to use

@@ -52,16 +52,25 @@ yolo:
 # ============================================================
 # VLM TRAINING (Vision-Language Model)
 # ============================================================
-# GPU Memory depends on max_pixels setting:
-#   - Default (max_pixels ~1M): 3B=22GB, 7B=27GB
-#   - High-res (max_pixels ~3M): 3B=50GB, 7B=60GB
-#   - Inference (4-bit): ~12GB
+# GPU Memory (4-bit QLoRA, ~1M max_pixels):
+#   Qwen 3 VL: 2B=~14GB, 4B=~18GB, 8B=~24GB
+#   Qwen 2.5 VL: 3B=~22GB, 7B=~27GB
+#   Inference (4-bit): ~8-12GB
 vlm:
   enabled: true
   # Model options:
-  #   Qwen/Qwen2.5-VL-3B-Instruct  - 3B params
-  #   Qwen/Qwen2.5-VL-7B-Instruct  - 7B params
-  model: Qwen/Qwen2.5-VL-7B-Instruct
+  #   Qwen 2.5 VL (patch_size=28):
+  #     Qwen/Qwen2.5-VL-3B-Instruct  - 3B params
+  #     Qwen/Qwen2.5-VL-7B-Instruct  - 7B params
+  #
+  #   Qwen 3 VL (patch_size=32, recommended):
+  #     Qwen/Qwen3-VL-2B-Instruct    - 2B params, fastest
+  #     Qwen/Qwen3-VL-2B-Thinking    - 2B params, reasoning
+  #     Qwen/Qwen3-VL-4B-Instruct    - 4B params, balanced
+  #     Qwen/Qwen3-VL-4B-Thinking    - 4B params, reasoning
+  #     Qwen/Qwen3-VL-8B-Instruct    - 8B params, best quality
+  #     Qwen/Qwen3-VL-8B-Thinking    - 8B params, reasoning + quality
+  model: Qwen/Qwen3-VL-4B-Instruct
 
   # Training
   epochs: 3
@@ -69,13 +78,17 @@ vlm:
 
   # Image size - MAJOR impact on GPU memory
   # Aspect ratio is preserved automatically
-  # Presets (pick based on your GPU and use case):
+  # Values are auto-calculated based on model version if not specified:
+  #   - Qwen 2.5: patch_size=28, default max_pixels = 1280*28*28 = 1003520
+  #   - Qwen 3:   patch_size=32, default max_pixels = 1280*32*32 = 1310720
+  #
+  # Override presets (pick based on your GPU and use case):
   #   - Small objects/details: max_pixels: 2073600  (1920x1080, ~50-60GB)
   #   - High quality:          max_pixels: 1503520  (1280x1280, ~35-40GB)
-  #   - Default (balanced):    max_pixels: 1003520  (1000x1000, ~22-27GB)
+  #   - Default (balanced):    max_pixels: ~1M      (~1000x1000, ~22-27GB)
   #   - Low memory:            max_pixels: 512000   (700x700, ~15-18GB)
-  min_pixels: 200704              # ~450x450
-  max_pixels: 1003520             # ~1000x1000 (default, RTX 4090 compatible)
+  # min_pixels: null              # Auto-calculated (256 * patch_size^2)
+  # max_pixels: null              # Auto-calculated (1280 * patch_size^2)
   lr: 0.00002
   precision: 4bit                 # 4bit required for <80GB VRAM
   max_samples: 10000              # Limit samples (null = use all)

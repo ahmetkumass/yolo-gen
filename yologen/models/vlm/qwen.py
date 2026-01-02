@@ -1,7 +1,20 @@
 """
 Qwen VLM Model with QLoRA Support
 
-Loads Qwen2.5-VL models with optional 4-bit/8-bit quantization and LoRA adapters.
+Loads Qwen2.5-VL and Qwen3-VL models with optional 4-bit/8-bit quantization and LoRA adapters.
+
+Supported models:
+    Qwen 2.5 VL:
+        - Qwen/Qwen2.5-VL-3B-Instruct
+        - Qwen/Qwen2.5-VL-7B-Instruct
+
+    Qwen 3 VL:
+        - Qwen/Qwen3-VL-2B-Instruct
+        - Qwen/Qwen3-VL-2B-Thinking
+        - Qwen/Qwen3-VL-4B-Instruct
+        - Qwen/Qwen3-VL-4B-Thinking
+        - Qwen/Qwen3-VL-8B-Instruct
+        - Qwen/Qwen3-VL-8B-Thinking
 """
 
 from pathlib import Path
@@ -9,13 +22,43 @@ from typing import Dict, Any, Optional, List
 
 import torch
 
+# Pixel multipliers for different Qwen versions (for image resizing)
+QWEN25_PIXEL_MULT = 28  # Qwen 2.5 VL rounds to multiples of 28
+QWEN3_PIXEL_MULT = 32   # Qwen 3 VL rounds to multiples of 32
+
+# Image patch sizes for different Qwen versions (for process_vision_info)
+QWEN25_PATCH_SIZE = 14  # Qwen 2.5 VL uses 14x14 patches
+QWEN3_PATCH_SIZE = 16   # Qwen 3 VL uses 16x16 patches
+
+
+def get_qwen_version(model_name: str) -> str:
+    """Detect Qwen version from model name."""
+    model_lower = model_name.lower()
+    if "qwen3" in model_lower or "qwen-3" in model_lower:
+        return "qwen3"
+    return "qwen2.5"
+
+
+def get_pixel_multiplier(model_name: str) -> int:
+    """Get pixel multiplier based on Qwen version."""
+    version = get_qwen_version(model_name)
+    return QWEN3_PIXEL_MULT if version == "qwen3" else QWEN25_PIXEL_MULT
+
 
 class QwenVLM:
     """
     Qwen Vision-Language Model wrapper with QLoRA support.
 
+    Supports both Qwen 2.5 VL and Qwen 3 VL model families.
+    Automatically detects model version and applies appropriate settings.
+
     Example:
+        # Qwen 2.5 VL
         vlm = QwenVLM(model_name="Qwen/Qwen2.5-VL-7B-Instruct", load_in_4bit=True)
+
+        # Qwen 3 VL
+        vlm = QwenVLM(model_name="Qwen/Qwen3-VL-8B-Instruct", load_in_4bit=True)
+
         vlm.load_model()
         output = vlm.generate(image="image.jpg", question="What is this?")
     """
@@ -32,14 +75,14 @@ class QwenVLM:
         lora_target_modules: List[str] = None,
         gradient_checkpointing: bool = True,
         device: str = "",
-        min_pixels: int = 256 * 28 * 28,
-        max_pixels: int = 1280 * 28 * 28,
+        min_pixels: int = None,
+        max_pixels: int = None,
     ):
         """
         Initialize Qwen VLM.
 
         Args:
-            model_name: HuggingFace model name
+            model_name: HuggingFace model name (Qwen2.5-VL or Qwen3-VL)
             load_in_4bit: Use 4-bit quantization (QLoRA)
             load_in_8bit: Use 8-bit quantization
             use_lora: Apply LoRA adapters
@@ -49,8 +92,8 @@ class QwenVLM:
             lora_target_modules: Modules to apply LoRA (default: q_proj, v_proj)
             gradient_checkpointing: Enable gradient checkpointing
             device: Device to use
-            min_pixels: Minimum image pixels (default: 256*28*28 = 200704, ~450x450)
-            max_pixels: Maximum image pixels (default: 1280*28*28 = 1003520, ~1000x1000)
+            min_pixels: Minimum image pixels (auto-calculated if None)
+            max_pixels: Maximum image pixels (auto-calculated if None)
         """
         self.model_name = model_name
         self.load_in_4bit = load_in_4bit
@@ -61,8 +104,22 @@ class QwenVLM:
         self.lora_dropout = lora_dropout
         self.lora_target_modules = lora_target_modules or ["q_proj", "v_proj", "k_proj", "o_proj"]
         self.gradient_checkpointing = gradient_checkpointing
-        self.min_pixels = min_pixels
-        self.max_pixels = max_pixels
+
+        # Detect Qwen version and set pixel multiplier
+        self.qwen_version = get_qwen_version(model_name)
+        self.pixel_mult = get_pixel_multiplier(model_name)
+
+        # Calculate pixel limits based on model version
+        # Qwen 2.5: 28*28 patches, Qwen 3: 32*32 patches
+        if min_pixels is None:
+            self.min_pixels = 256 * self.pixel_mult * self.pixel_mult
+        else:
+            self.min_pixels = min_pixels
+
+        if max_pixels is None:
+            self.max_pixels = 1280 * self.pixel_mult * self.pixel_mult
+        else:
+            self.max_pixels = max_pixels
 
         if device:
             self.device = device
@@ -80,13 +137,13 @@ class QwenVLM:
     def load_model(self):
         """Load model with quantization and LoRA."""
         from transformers import (
-            AutoModelForVision2Seq,
             AutoProcessor,
             BitsAndBytesConfig,
         )
         from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-        print(f"Loading {self.model_name}...")
+        print(f"Loading {self.model_name} ({self.qwen_version})...")
+        print(f"Pixel settings: min={self.min_pixels}, max={self.max_pixels} (mult={self.pixel_mult})")
 
         # Quantization config
         bnb_config = None
@@ -102,7 +159,7 @@ class QwenVLM:
                 load_in_8bit=True,
             )
 
-        # Load model - use AutoModelForVision2Seq for automatic class detection
+        # Model kwargs
         model_kwargs = {
             "trust_remote_code": True,
             "torch_dtype": torch.bfloat16,
@@ -114,10 +171,29 @@ class QwenVLM:
         else:
             model_kwargs["device_map"] = self.device
 
-        self.model = AutoModelForVision2Seq.from_pretrained(
-            self.model_name,
-            **model_kwargs,
-        )
+        # Load model - use appropriate Auto class based on version
+        # Qwen3-VL uses AutoModelForImageTextToText
+        # Qwen2.5-VL uses AutoModelForVision2Seq
+        if self.qwen_version == "qwen3":
+            try:
+                from transformers import AutoModelForImageTextToText
+                self.model = AutoModelForImageTextToText.from_pretrained(
+                    self.model_name,
+                    **model_kwargs,
+                )
+            except ImportError:
+                # Fallback for older transformers versions
+                from transformers import AutoModelForVision2Seq
+                self.model = AutoModelForVision2Seq.from_pretrained(
+                    self.model_name,
+                    **model_kwargs,
+                )
+        else:
+            from transformers import AutoModelForVision2Seq
+            self.model = AutoModelForVision2Seq.from_pretrained(
+                self.model_name,
+                **model_kwargs,
+            )
 
         # Load processor with image size limits
         self.processor = AutoProcessor.from_pretrained(
@@ -249,7 +325,17 @@ class QwenVLM:
         )
 
         # Process vision info
-        image_inputs, video_inputs = process_vision_info(messages)
+        # Qwen3-VL requires image_patch_size parameter
+        if self.qwen_version == "qwen3":
+            # Get patch size from processor (16 for Qwen3, 14 for Qwen2.5)
+            default_patch_size = QWEN3_PATCH_SIZE
+            patch_size = getattr(self.processor.image_processor, 'patch_size', default_patch_size)
+            image_inputs, video_inputs = process_vision_info(
+                messages,
+                image_patch_size=patch_size,
+            )
+        else:
+            image_inputs, video_inputs = process_vision_info(messages)
 
         # Create inputs
         inputs = self.processor(
@@ -396,14 +482,21 @@ def create_qwen_vlm(
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
     gradient_checkpointing: bool = True,
-    min_pixels: int = 256 * 28 * 28,
-    max_pixels: int = 1280 * 28 * 28,
+    min_pixels: int = None,
+    max_pixels: int = None,
     **kwargs,
 ) -> QwenVLM:
     """
     Create Qwen VLM instance.
 
     Convenience function for creating QwenVLM with common settings.
+    Automatically detects Qwen 2.5 vs Qwen 3 and applies appropriate pixel settings.
+
+    Supported models:
+        Qwen 2.5 VL: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct
+        Qwen 3 VL: Qwen/Qwen3-VL-2B-Instruct, Qwen/Qwen3-VL-2B-Thinking,
+                   Qwen/Qwen3-VL-4B-Instruct, Qwen/Qwen3-VL-4B-Thinking,
+                   Qwen/Qwen3-VL-8B-Instruct, Qwen/Qwen3-VL-8B-Thinking
 
     Args:
         model_name: HuggingFace model name
@@ -414,8 +507,8 @@ def create_qwen_vlm(
         lora_alpha: LoRA alpha
         lora_dropout: LoRA dropout
         gradient_checkpointing: Enable gradient checkpointing
-        min_pixels: Minimum image pixels (default ~450x450)
-        max_pixels: Maximum image pixels (default ~1000x1000)
+        min_pixels: Minimum image pixels (auto-calculated based on model version if None)
+        max_pixels: Maximum image pixels (auto-calculated based on model version if None)
 
     Returns:
         QwenVLM instance

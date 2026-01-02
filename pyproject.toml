@@ -47,11 +47,11 @@ dependencies = [
 
 [project.optional-dependencies]
 vlm = [
-    "transformers>=4.37.0",
+    "transformers>=4.45.0",
     "accelerate>=0.25.0",
     "peft>=0.7.0",
     "bitsandbytes>=0.41.0",
-    "qwen-vl-utils",
+    "qwen-vl-utils>=0.0.14",
 ]
 dev = [
     "pytest>=7.0.0",
