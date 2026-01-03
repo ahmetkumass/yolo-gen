@@ -197,28 +197,6 @@ class VLMDatasetGenerator:
                         })
                         stats['qa_pairs'] += 1
 
-                # Global Q&A
-                img_all_boxes = img.copy()
-                for box in boxes:
-                    if box['class_id'] < len(self.class_names):
-                        if self.class_names[box['class_id']].lower() != 'unused':
-                            bbox = self._xywh_to_xyxy(box, img_w, img_h)
-                            img_all_boxes = self._draw_red_box(img_all_boxes, bbox)
-
-                out_img_name_global = f"{img_path.stem}_all.jpg"
-                cv2.imwrite(str(out_img_dir / out_img_name_global), img_all_boxes)
-
-                global_qa = self._generate_global_qa(class_counts)
-                for qa in global_qa:
-                    samples.append({
-                        "image": f"images/{split}/{out_img_name_global}",
-                        "question": qa["q"],
-                        "answer": qa["a"],
-                        "class_counts": class_counts,
-                        "type": "global",
-                    })
-                    stats['qa_pairs'] += 1
-
             # Save
             random.shuffle(samples)
             with open(output_path / f'{split}.jsonl', 'w') as f:
@@ -283,22 +261,6 @@ class VLMDatasetGenerator:
         cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), self.box_color_bgr, self.box_thickness)
         return img
 
-    def _format_objects(self, class_counts: Dict[str, int]) -> str:
-        """Format class counts as text."""
-        items = []
-        for name, count in class_counts.items():
-            if count == 1:
-                items.append(f"a {name.lower()}")
-            else:
-                items.append(f"{count} {name.lower()}s")
-        if len(items) == 0:
-            return "no objects"
-        elif len(items) == 1:
-            return items[0]
-        elif len(items) == 2:
-            return f"{items[0]} and {items[1]}"
-        return ", ".join(items[:-1]) + f", and {items[-1]}"
-
     def _get_detail(self, class_name: str) -> str:
         """Get class-specific detail sentence."""
         if self.class_details:
@@ -343,49 +305,6 @@ class VLMDatasetGenerator:
                 'detail': detail,
                 'yes_no': 'Yes',
                 'explanation': f'there is a {c} in the marked area',
-            })
-            if q and a and '{' not in q and '{' not in a:
-                qa.append({"q": q, "a": a})
-
-        return qa
-
-    def _generate_global_qa(self, class_counts: Dict[str, int]) -> List[Dict]:
-        """Generate global/image-level Q&A using templates from config."""
-        qa = []
-        objects = self._format_objects(class_counts)
-        total = sum(class_counts.values())
-        count_text = f"{'is' if total == 1 else 'are'} {total} object{'s' if total > 1 else ''}"
-
-        # Get detail for first class
-        first_class = list(class_counts.keys())[0] if class_counts else ''
-        detail = self._get_detail(first_class) if first_class else ''
-
-        if not self.prompt_templates:
-            raise ValueError("No prompt templates defined in vlm_dataset.prompts config")
-
-        for tmpl in self.prompt_templates:
-            q_template = tmpl.get('question', '')
-            a_template = tmpl.get('answer', '')
-
-            # Only use templates that work with multiple objects
-            if '{class}' in q_template and '{objects}' not in q_template:
-                continue
-
-            q = self._fill_template(q_template, **{
-                'class': first_class,
-                'objects': objects,
-                'count_text': count_text,
-                'detail': detail,
-                'yes_no': 'Yes',
-                'explanation': f'there are {objects} in this image',
-            })
-            a = self._fill_template(a_template, **{
-                'class': first_class,
-                'objects': objects,
-                'count_text': count_text,
-                'detail': detail,
-                'yes_no': 'Yes',
-                'explanation': f'there are {objects} in this image',
             })
             if q and a and '{' not in q and '{' not in a:
                 qa.append({"q": q, "a": a})
