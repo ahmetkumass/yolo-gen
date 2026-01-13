@@ -103,6 +103,11 @@ data/
 # Keep only default config template
 !configs/default.yaml
 
+# Keep assets (banner, etc.)
+!assets/
+assets/*
+!assets/*.png
+
 # Logs
 *.log
 logs/

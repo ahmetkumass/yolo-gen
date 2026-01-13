@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/yolo-gen-banner.png" alt="YoloGen">
+</p>
+
 # YoloGen
 
 **Train YOLO + VLM with one command. No extra labeling.**
