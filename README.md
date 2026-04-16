@@ -214,6 +214,51 @@ predictor = UnifiedPredictor(yolo_weights="best.pt", vlm_adapter="vlm/best")
 results = predictor.predict(source="image.jpg", vlm_question="What is in the red box?")
 ```
 
+**Verification mode** (adapters trained with `qa_format: binary_multiclass`):
+
+```python
+# Adapter metadata (class_prompts, qa_format) is auto-loaded from
+# the adapter's config.json when the predictor is constructed.
+vlm = VLMPredictor(vlm_adapter="runs/exp_xxx/vlm/best")
+
+# Ask the model about one class
+result = vlm.verify(
+    image="frame.jpg",
+    bbox=[120, 340, 280, 520],
+    target_class="handgun",
+)
+# → {"label": "Yes" | "No" | "unknown", "raw": "...", "target": "handgun"}
+
+# Or run every class the adapter knows about in one call
+all_results = vlm.verify_all(image="frame.jpg", bbox=[120, 340, 280, 520])
+```
+
+**Hard negative mining** — standalone use of the miner:
+
+```python
+from PIL import Image
+from yologen.data import NegativeMiner, GTBox
+
+miner = NegativeMiner({
+    "enabled": True,
+    "embedding_model": "facebook/dinov2-base",
+    "rings": [1.0, 3.0, 6.0],
+    "similarity_range": [0.25, 0.50],
+    "max_per_image": 3,
+})
+
+image = Image.open("frame.jpg")
+gt_boxes = [GTBox(bbox=(900, 605, 987, 664), class_id=0, class_name="handgun")]
+
+regions = miner.mine_image(image, gt_boxes)
+for r in regions:
+    print(r.bbox, r.similarity, r.ring_idx, r.source_gt_class)
+```
+
+The miner's full-dataset entry point, `mine_dataset(pairs)`, returns
+mined regions plus aggregate `MiningStats`, which is what the
+YAML-driven pipeline uses internally.
+
 ## Configuration
 
 Copy and edit `configs/default.yaml`. Two representative setups:
