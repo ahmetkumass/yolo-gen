@@ -199,6 +199,7 @@ class VLMDatasetGenerator:
 
         # Lazy-instantiate the miner once; it loads models on first mine_image call.
         miner: Optional[NegativeMiner] = None
+        hnm_stats_per_split: Dict[str, Dict] = {}
         if self.negative_mining_config.get("enabled"):
             miner = NegativeMiner(self.negative_mining_config)
 
@@ -296,13 +297,14 @@ class VLMDatasetGenerator:
 
             # Hard-negative mining (optional, binary_multiclass only)
             if miner is not None:
-                neg_samples = self._mine_and_render_negatives(
+                neg_samples, hnm_stats = self._mine_and_render_negatives(
                     miner=miner,
                     split=split,
                     img_dir=img_dir,
                     label_dir=label_dir,
                     out_img_dir=out_img_dir,
                 )
+                hnm_stats_per_split[split] = hnm_stats
                 for s in neg_samples:
                     samples.append(s)
                     stats['qa_pairs'] += 1
@@ -315,6 +317,20 @@ class VLMDatasetGenerator:
                     f.write(json.dumps(sample, ensure_ascii=False) + '\n')
 
             stats[split] = len(samples)
+
+        # Persist per-split hard-negative mining statistics for reproducibility.
+        if hnm_stats_per_split:
+            with open(output_path / 'hnm_stats.json', 'w') as f:
+                json.dump({
+                    'config': {
+                        k: v for k, v in self.negative_mining_config.items()
+                        if k != 'vlm_verify'
+                    },
+                    'vlm_verify_enabled': bool(
+                        self.negative_mining_config.get('vlm_verify', {}).get('enabled')
+                    ),
+                    'per_split': hnm_stats_per_split,
+                }, f, indent=2)
 
         # Save config (includes all settings for inference consistency)
         # Note: box_color is saved as RGB for PIL compatibility
@@ -474,12 +490,16 @@ class VLMDatasetGenerator:
         img_dir: Path,
         label_dir: Path,
         out_img_dir: Path,
-    ) -> List[Dict]:
+    ) -> tuple[List[Dict], Dict]:
         """Run the miner across a split and render each mined region.
 
-        Returns a list of Yes/No samples suitable for direct jsonl output.
-        Each mined region spawns one sample per active class (answer
-        ``"No"`` across the board — spatial negatives belong to no class).
+        Returns:
+            A pair ``(samples, mining_stats)`` where ``samples`` is a list of
+            Yes/No jsonl-ready records and ``mining_stats`` is the serialised
+            :class:`yologen.data.negative_miner.MiningStats` dict for this
+            split. Each mined region spawns one sample per active class
+            (answer ``"No"`` across the board — spatial negatives belong to
+            no class).
         """
         # Collect (image_path, [GTBox, ...]) pairs the miner can consume.
         from PIL import Image as PILImage
@@ -509,10 +529,11 @@ class VLMDatasetGenerator:
                 pairs.append((img_path, gt_list))
 
         if not pairs:
-            return []
+            return [], {"images_processed": 0}
 
-        results, stats = miner.mine_dataset(pairs, show_progress=True)
-        print(f"  [HNM/{split}] {stats.to_dict()}")
+        results, mining_stats = miner.mine_dataset(pairs, show_progress=True)
+        mining_stats_dict = mining_stats.to_dict()
+        print(f"  [HNM/{split}] {mining_stats_dict}")
 
         # Render each mined region + emit Yes/No samples across classes.
         out_samples: List[Dict] = []
@@ -544,7 +565,7 @@ class VLMDatasetGenerator:
                             "source_gt_class": region.source_gt_class,
                         },
                     })
-        return out_samples
+        return out_samples, mining_stats_dict
 
 
 def generate_vlm_dataset(
