@@ -50,12 +50,16 @@ class VLMDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.samples[idx]
+        # Per-sample system prompt is used by qa_format="binary_multiclass"
+        # (class-specific prompts). Default collate with a single global prompt
+        # still works for descriptive mode where this field is absent.
         return {
             'image_path': str(self.image_root / sample['image']),
             'question': sample['question'],
             'answer': sample['answer'],
-            'class': sample.get('class', ''),
-            'bbox': sample.get('bbox', []),  # Empty list instead of None
+            'system': sample.get('system') or '',
+            'class': sample.get('class') or '',
+            'bbox': sample.get('bbox', []),
         }
 
 
@@ -259,12 +263,18 @@ class VLMTrainer:
                     question = batch['question'][0] if isinstance(batch['question'], list) else batch['question']
                     answer = batch['answer'][0] if isinstance(batch['answer'], list) else batch['answer']
 
-                    # Prepare input (with system_prompt for consistent training)
+                    # Per-sample system prompt overrides the global one when
+                    # present (binary_multiclass with class-specific prompts).
+                    sample_system = batch.get('system')
+                    if isinstance(sample_system, list):
+                        sample_system = sample_system[0]
+                    effective_system = sample_system if sample_system else system_prompt
+
                     inputs = self.vlm.prepare_input(
                         image=image_path,
                         question=question,
                         bbox=None,
-                        system_prompt=system_prompt,
+                        system_prompt=effective_system,
                     )
 
                     # Labels
