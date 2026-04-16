@@ -103,6 +103,22 @@ vlm:
 # VLM DATASET GENERATION
 # ============================================================
 vlm_dataset:
+  # ----------------------------------------------------------
+  # qa_format — choose the task framing
+  # ----------------------------------------------------------
+  #   "descriptive"        : (default) template-based captions. Uses `prompts`
+  #                          and `details` below. Produces one sample per
+  #                          template per bbox. Label is free-form text.
+  #
+  #   "binary_multiclass"  : per-bbox Yes/No supervision. For each class
+  #                          defined in dataset.yaml, emit one sample:
+  #                          matching class → "Yes", others → "No".
+  #                          Requires `class_prompts` (and optionally
+  #                          `class_questions`). Cross-class negatives are
+  #                          generated automatically.
+  #                          Prerequisite for `negative_mining`.
+  qa_format: descriptive
+
   box_color: [0, 0, 255]          # BGR Red (OpenCV format)
   box_thickness: 3
 
@@ -132,6 +148,59 @@ vlm_dataset:
   #     - "A person is visible in the frame."
   #   car:
   #     - "A vehicle/car is detected."
+
+  # ----------------------------------------------------------
+  # binary_multiclass config (used only when qa_format = "binary_multiclass")
+  # ----------------------------------------------------------
+  # class_prompts:
+  #   handgun: |
+  #     You are a security analyst reviewing weapon-detection alerts.
+  #     Decide if the red bounding box contains a handgun. Answer Yes or No.
+  #   rifle: |
+  #     You are a security analyst reviewing weapon-detection alerts.
+  #     Decide if the red bounding box contains a long gun (rifle or shotgun).
+  #     Answer Yes or No.
+  #
+  # class_questions:  # optional; auto-filled with a sensible default
+  #   handgun: "Is there a handgun in the red bounding box? Answer Yes or No."
+  #   rifle:   "Is there a long gun in the red bounding box? Answer Yes or No."
+
+  # ----------------------------------------------------------
+  # negative_mining — detector-free hard-negative generation
+  # ----------------------------------------------------------
+  # For each GT bbox, mine image regions that look similar to the positive
+  # but do NOT contain any target. Uses a pretrained self-supervised vision
+  # encoder (DINOv2 by default) and a ring-based spatial constraint — FPs
+  # concentrate near positives in real-world detectors.
+  #
+  # Enabling this section requires qa_format = "binary_multiclass".
+  # Safeguards (multi-layer TP-leakage protection) are built in:
+  #   (1) IoU exclusion vs ALL GT bboxes in the image
+  #   (2) Hard similarity upper cap (similarity_range[1])
+  #   (3) Diversity filter between mined regions
+  #   (4) Optional VLM zero-shot double-check (opt-in)
+  #
+  # negative_mining:
+  #   enabled: true
+  #   embedding_model: facebook/dinov2-base
+  #   # Ring radii as multiples of each GT bbox's min side.
+  #   rings: [1.0, 3.0, 6.0]
+  #   stride_per_ring: [30, 50, 80]
+  #   similarity_range: [0.25, 0.50]   # DINOv2 cosine-sim hard-neg window
+  #   max_per_image: 3
+  #   exclude_iou_with_any_gt: 0.1
+  #   diversity_iou_threshold: 0.3
+  #   batch_size: 32
+  #   device: auto                     # auto | cuda | mps | cpu
+  #   random_seed: 0
+  #   # Optional 4th safeguard: zero-shot VLM double-check. Slow but
+  #   # strongest protection against TP leakage.
+  #   vlm_verify:
+  #     enabled: false
+  #     model: Qwen/Qwen3-VL-4B-Instruct
+  #     prompt: "Is there a {class} in this region? Answer Yes or No."
+  #     reject_on_yes: true
+  #     max_new_tokens: 4
 
 # ============================================================
 # OUTPUT
