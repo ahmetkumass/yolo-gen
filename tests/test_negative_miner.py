@@ -67,7 +67,7 @@ class TestIoU:
 class TestConfig:
     def test_defaults_applied_when_missing_keys(self):
         miner = NegativeMiner({"enabled": True})
-        assert miner.config["rings"] == [1.0, 3.0, 6.0]
+        assert miner.config["rings"] == [3.0, 6.0]
         assert miner.sim_lo == 0.25
         assert miner.sim_hi == 0.50
 

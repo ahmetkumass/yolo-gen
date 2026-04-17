@@ -99,6 +99,11 @@ def main():
     if not data_path.is_absolute():
         data_path = Path(__file__).parent / data_path
 
+    # Preflight: validate dataset.yaml and resolve relative path: to absolute.
+    # Replaces cryptic downstream errors with a single clear message.
+    from yologen.utils.preflight import preflight_dataset
+    data_path = preflight_dataset(data_path, vlm_dataset_config=vlm_dataset_config)
+
     # Output directory
     if args.save_dir:
         save_dir = Path(args.save_dir)

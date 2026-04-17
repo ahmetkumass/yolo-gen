@@ -89,7 +89,7 @@ vlm_dataset:
   negative_mining:
     enabled: true
     embedding_model: facebook/dinov2-base
-    rings: [1.0, 3.0, 6.0]           # multiples of GT bbox min side
+    rings: [3.0, 6.0]                # multiples of GT bbox min side
     similarity_range: [0.25, 0.50]
     max_per_image: 3
     exclude_iou_with_any_gt: 0.1
@@ -144,15 +144,19 @@ names:
 
 ### 3. Configure
 
-Edit `configs/default.yaml` and set your dataset path:
-```yaml
-data: data/my_dataset/dataset.yaml
+```bash
+cp configs/default.yaml configs/my_run.yaml
+# then edit `data:` inside my_run.yaml
 ```
+
+`configs/default.yaml` is the single source of truth. Required fields
+are uncommented; advanced features (verification mode, hard-negative
+mining) live as commented-out blocks — uncomment to enable.
 
 ### 4. Train
 
 ```bash
-python train.py --config configs/default.yaml
+python train.py --config configs/my_run.yaml
 ```
 
 This will:
@@ -242,7 +246,7 @@ from yologen.data import NegativeMiner, GTBox
 miner = NegativeMiner({
     "enabled": True,
     "embedding_model": "facebook/dinov2-base",
-    "rings": [1.0, 3.0, 6.0],
+    "rings": [3.0, 6.0],
     "similarity_range": [0.25, 0.50],
     "max_per_image": 3,
 })
@@ -320,12 +324,12 @@ vlm_dataset:
   negative_mining:
     enabled: true
     embedding_model: facebook/dinov2-base
-    rings: [1.0, 3.0, 6.0]
+    rings: [3.0, 6.0]
     similarity_range: [0.25, 0.50]
     max_per_image: 3
 ```
 
-See [`configs/default.yaml`](configs/default.yaml) for the full annotated reference.
+See [`configs/default.yaml`](configs/default.yaml) for every available field.
 
 ## Output Structure
 

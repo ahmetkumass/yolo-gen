@@ -137,7 +137,7 @@ class NegativeMiner:
         miner = NegativeMiner({
             "enabled": True,
             "embedding_model": "facebook/dinov2-base",
-            "rings": [1.0, 3.0, 6.0],
+            "rings": [3.0, 6.0],
             "similarity_range": [0.25, 0.50],
             "max_per_image": 3,
         })
@@ -148,8 +148,8 @@ class NegativeMiner:
     DEFAULT_CONFIG: Dict = {
         "enabled": False,
         "embedding_model": "facebook/dinov2-base",
-        "rings": [1.0, 3.0, 6.0],
-        "stride_per_ring": [30, 50, 80],
+        "rings": [3.0, 6.0],
+        "stride_per_ring": [50, 80],
         "similarity_range": [0.25, 0.50],
         "max_per_image": 3,
         "exclude_iou_with_any_gt": 0.1,
