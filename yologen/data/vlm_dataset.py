@@ -405,11 +405,18 @@ class VLMDatasetGenerator:
         return ""
 
     def _fill_template(self, template: str, **kwargs) -> str:
-        """Fill template with placeholders."""
+        """Fill template with placeholders and normalize whitespace.
+
+        Empty placeholders (e.g. `{detail}` when no class details are
+        configured) otherwise leave double spaces or trailing whitespace
+        in the rendered answer, which shows up verbatim as supervision.
+        """
+        import re
         result = template
         for key, value in kwargs.items():
             result = result.replace(f"{{{key}}}", str(value))
-        return result
+        # Collapse runs of internal whitespace and strip edges.
+        return re.sub(r"\s+", " ", result).strip()
 
     def _generate_grounded_qa(self, class_name: str) -> List[Dict]:
         """Generate grounded Q&A for single object using templates from config."""
