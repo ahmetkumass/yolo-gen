@@ -1,8 +1,22 @@
-"""
-VLM Dataset Generator
+"""VLM Dataset Generator.
 
-Creates Q&A pairs for VLM training from YOLO detection labels.
+Two generation modes:
+
+* ``qa_format: "descriptive"`` (default, backwards-compatible)
+    Template-based Q&A pairs describing what is inside the red bbox.
+
+* ``qa_format: "binary_multiclass"``
+    For each GT bbox, emit one Yes/No sample per class defined in the
+    dataset. Matching class → "Yes", others → "No". Produces free
+    cross-class hard negatives with zero extra effort.
+
+Optional: **hard negative mining** — detector-free spatial similarity
+mining that adds out-of-box "No" samples from regions of the image that
+visually resemble positives but do not contain any target. Requires
+``qa_format == "binary_multiclass"``. See :mod:`yologen.data.negative_miner`.
 """
+
+from __future__ import annotations
 
 import json
 import random
@@ -13,6 +27,8 @@ import cv2
 import numpy as np
 import yaml
 from tqdm import tqdm
+
+from yologen.data.negative_miner import GTBox, NegativeMiner
 
 
 class VLMDatasetGenerator:
@@ -61,9 +77,21 @@ class VLMDatasetGenerator:
 
         self.prompt_templates = vlm_config.get('prompts', [])
         self.class_details = vlm_config.get('details', {})
-        self.class_prompts = vlm_config.get('class_prompts', {})  # Class-specific prompts
-        self.qa_format = vlm_config.get('qa_format', 'descriptive')  # 'descriptive' or 'binary'
+        self.class_prompts: Dict[str, str] = vlm_config.get('class_prompts', {})
+        self.class_questions: Dict[str, str] = vlm_config.get('class_questions', {})
+        self.qa_format = vlm_config.get('qa_format', 'descriptive')
+        if self.qa_format not in ('descriptive', 'binary_multiclass'):
+            raise ValueError(
+                f"Unknown qa_format: {self.qa_format!r}. "
+                "Expected 'descriptive' or 'binary_multiclass'."
+            )
         self.box_thickness = vlm_config.get('box_thickness', box_thickness)
+
+        # Hard-negative mining config
+        self.negative_mining_config: Dict = vlm_config.get('negative_mining', {})
+
+        self._validate_binary_multiclass()
+        self._validate_negative_mining()
 
         # Box color - config uses BGR (OpenCV), we store RGB for PIL
         box_color_bgr = vlm_config.get('box_color', [0, 0, 255])  # Default red in BGR
@@ -75,6 +103,47 @@ class VLMDatasetGenerator:
             "You are an object detection assistant. "
             "Identify objects in red marked areas clearly and confidently."
         )
+
+    def _active_class_names(self) -> List[str]:
+        """Class names filtered to those used in training (``unused`` excluded)."""
+        return [c for c in self.class_names if c.lower() != "unused"]
+
+    def _validate_binary_multiclass(self) -> None:
+        """Check that binary_multiclass config is complete."""
+        if self.qa_format != "binary_multiclass":
+            return
+        active = self._active_class_names()
+        if not active:
+            raise ValueError(
+                "binary_multiclass requires at least one non-'unused' class in "
+                "dataset names."
+            )
+        missing_prompts = [c for c in active if c not in self.class_prompts]
+        if missing_prompts:
+            raise ValueError(
+                f"binary_multiclass requires `class_prompts` for every class. "
+                f"Missing: {missing_prompts}. "
+                f"Add `vlm_dataset.class_prompts: {{<class>: <system prompt>}}` "
+                f"to your config."
+            )
+        # Auto-fill class_questions with a sensible default when missing.
+        for c in active:
+            if c not in self.class_questions:
+                self.class_questions[c] = (
+                    f"Is there a {c} in the red bounding box? Answer Yes or No."
+                )
+
+    def _validate_negative_mining(self) -> None:
+        """Ensure negative_mining is only enabled alongside binary_multiclass."""
+        if not self.negative_mining_config.get("enabled"):
+            return
+        if self.qa_format != "binary_multiclass":
+            raise ValueError(
+                "vlm_dataset.negative_mining.enabled=true requires "
+                "vlm_dataset.qa_format='binary_multiclass'. "
+                "Spatial hard negatives only make sense with binary Yes/No "
+                "supervision; descriptive captions cannot be a 'No' label."
+            )
 
     def _load_config(self) -> Dict:
         """Load dataset configuration."""
@@ -118,7 +187,21 @@ class VLMDatasetGenerator:
             print("VLM dataset exists. Use force=True to regenerate.")
             return {'status': 'skipped'}
 
-        stats = {'train': 0, 'val': 0, 'images': 0, 'qa_pairs': 0}
+        stats: Dict = {
+            'train': 0,
+            'val': 0,
+            'images': 0,
+            'qa_pairs': 0,
+            'positives': 0,
+            'cross_class_negatives': 0,
+            'hard_negatives': 0,
+        }
+
+        # Lazy-instantiate the miner once; it loads models on first mine_image call.
+        miner: Optional[NegativeMiner] = None
+        hnm_stats_per_split: Dict[str, Dict] = {}
+        if self.negative_mining_config.get("enabled"):
+            miner = NegativeMiner(self.negative_mining_config)
 
         for split in ['train', 'val']:
             # Find directories
@@ -183,19 +266,49 @@ class VLMDatasetGenerator:
                     cv2.imwrite(str(out_img_dir / out_img_name), img_with_box)
                     stats['images'] += 1
 
-                    # Generate Q&A
-                    qa_pairs = self._generate_grounded_qa(class_name)
-                    for qa in qa_pairs:
-                        samples.append({
-                            "image": f"images/{split}/{out_img_name}",
-                            "question": qa["q"],
-                            "answer": qa["a"],
-                            "class": class_name,
-                            "class_id": class_id,
-                            "bbox": bbox,
-                            "type": "grounded",
-                        })
-                        stats['qa_pairs'] += 1
+                    if self.qa_format == "binary_multiclass":
+                        new_samples = self._binary_multiclass_samples(
+                            class_name=class_name,
+                            class_id=class_id,
+                            bbox=bbox,
+                            split=split,
+                            out_img_name=out_img_name,
+                        )
+                        for s in new_samples:
+                            samples.append(s)
+                            stats['qa_pairs'] += 1
+                            if s["answer"] == "Yes":
+                                stats['positives'] += 1
+                            else:
+                                stats['cross_class_negatives'] += 1
+                    else:
+                        qa_pairs = self._generate_grounded_qa(class_name)
+                        for qa in qa_pairs:
+                            samples.append({
+                                "image": f"images/{split}/{out_img_name}",
+                                "question": qa["q"],
+                                "answer": qa["a"],
+                                "class": class_name,
+                                "class_id": class_id,
+                                "bbox": bbox,
+                                "type": "grounded",
+                            })
+                            stats['qa_pairs'] += 1
+
+            # Hard-negative mining (optional, binary_multiclass only)
+            if miner is not None:
+                neg_samples, hnm_stats = self._mine_and_render_negatives(
+                    miner=miner,
+                    split=split,
+                    img_dir=img_dir,
+                    label_dir=label_dir,
+                    out_img_dir=out_img_dir,
+                )
+                hnm_stats_per_split[split] = hnm_stats
+                for s in neg_samples:
+                    samples.append(s)
+                    stats['qa_pairs'] += 1
+                    stats['hard_negatives'] += 1
 
             # Save
             random.shuffle(samples)
@@ -205,17 +318,38 @@ class VLMDatasetGenerator:
 
             stats[split] = len(samples)
 
+        # Persist per-split hard-negative mining statistics for reproducibility.
+        if hnm_stats_per_split:
+            with open(output_path / 'hnm_stats.json', 'w') as f:
+                json.dump({
+                    'config': {
+                        k: v for k, v in self.negative_mining_config.items()
+                        if k != 'vlm_verify'
+                    },
+                    'vlm_verify_enabled': bool(
+                        self.negative_mining_config.get('vlm_verify', {}).get('enabled')
+                    ),
+                    'per_split': hnm_stats_per_split,
+                }, f, indent=2)
+
         # Save config (includes all settings for inference consistency)
         # Note: box_color is saved as RGB for PIL compatibility
         box_color_rgb = self.box_color_rgb  # Already converted to RGB
         with open(output_path / 'config.json', 'w') as f:
             json.dump({
+                'qa_format': self.qa_format,
                 'class_names': self.class_names,
                 'prompt_templates': self.prompt_templates,
                 'class_details': self.class_details,
+                'class_prompts': self.class_prompts,
+                'class_questions': self.class_questions,
                 'box_thickness': self.box_thickness,
                 'box_color': list(box_color_rgb),  # RGB format
                 'system_prompt': self.system_prompt,
+                'negative_mining': {
+                    k: v for k, v in self.negative_mining_config.items()
+                    if k not in ('vlm_verify',)
+                } if self.negative_mining_config.get('enabled') else {'enabled': False},
                 'stats': stats,
             }, f, indent=2)
 
@@ -271,11 +405,18 @@ class VLMDatasetGenerator:
         return ""
 
     def _fill_template(self, template: str, **kwargs) -> str:
-        """Fill template with placeholders."""
+        """Fill template with placeholders and normalize whitespace.
+
+        Empty placeholders (e.g. `{detail}` when no class details are
+        configured) otherwise leave double spaces or trailing whitespace
+        in the rendered answer, which shows up verbatim as supervision.
+        """
+        import re
         result = template
         for key, value in kwargs.items():
             result = result.replace(f"{{{key}}}", str(value))
-        return result
+        # Collapse runs of internal whitespace and strip edges.
+        return re.sub(r"\s+", " ", result).strip()
 
     def _generate_grounded_qa(self, class_name: str) -> List[Dict]:
         """Generate grounded Q&A for single object using templates from config."""
@@ -310,6 +451,128 @@ class VLMDatasetGenerator:
                 qa.append({"q": q, "a": a})
 
         return qa
+
+
+    # ------------------------------------------------------------------
+    # Binary multiclass helpers
+    # ------------------------------------------------------------------
+
+    def _binary_multiclass_samples(
+        self,
+        class_name: str,
+        class_id: int,
+        bbox: List[int],
+        split: str,
+        out_img_name: str,
+    ) -> List[Dict]:
+        """Emit one Yes/No sample per active class for a single GT bbox.
+
+        Matching class → ``"Yes"`` (positive); others → ``"No"`` (cross-class
+        hard negative, free of charge).
+        """
+        samples: List[Dict] = []
+        for target in self._active_class_names():
+            is_match = target.lower() == class_name.lower()
+            samples.append({
+                "image": f"images/{split}/{out_img_name}",
+                "system": self.class_prompts[target],
+                "question": self.class_questions[target],
+                "answer": "Yes" if is_match else "No",
+                "class": class_name,
+                "class_id": class_id,
+                "target": target,
+                "bbox": bbox,
+                "type": "positive" if is_match else "cross_class_negative",
+            })
+        return samples
+
+    # ------------------------------------------------------------------
+    # Hard-negative mining helpers
+    # ------------------------------------------------------------------
+
+    def _mine_and_render_negatives(
+        self,
+        miner: NegativeMiner,
+        split: str,
+        img_dir: Path,
+        label_dir: Path,
+        out_img_dir: Path,
+    ) -> tuple[List[Dict], Dict]:
+        """Run the miner across a split and render each mined region.
+
+        Returns:
+            A pair ``(samples, mining_stats)`` where ``samples`` is a list of
+            Yes/No jsonl-ready records and ``mining_stats`` is the serialised
+            :class:`yologen.data.negative_miner.MiningStats` dict for this
+            split. Each mined region spawns one sample per active class
+            (answer ``"No"`` across the board — spatial negatives belong to
+            no class).
+        """
+        # Collect (image_path, [GTBox, ...]) pairs the miner can consume.
+        from PIL import Image as PILImage
+
+        pairs: List[tuple[Path, List[GTBox]]] = []
+        img_files: List[Path] = []
+        for ext in ['.jpg', '.jpeg', '.png']:
+            img_files.extend(img_dir.glob(f'*{ext}'))
+            img_files.extend(img_dir.glob(f'*{ext.upper()}'))
+
+        for img_path in img_files:
+            raw_boxes = self._parse_labels(label_dir / f"{img_path.stem}.txt")
+            if not raw_boxes:
+                continue
+            with PILImage.open(img_path) as im:
+                img_w, img_h = im.size
+            gt_list: List[GTBox] = []
+            for b in raw_boxes:
+                if b['class_id'] >= len(self.class_names):
+                    continue
+                cname = self.class_names[b['class_id']]
+                if cname.lower() == 'unused':
+                    continue
+                xyxy = tuple(self._xywh_to_xyxy(b, img_w, img_h))
+                gt_list.append(GTBox(bbox=xyxy, class_id=b['class_id'], class_name=cname))
+            if gt_list:
+                pairs.append((img_path, gt_list))
+
+        if not pairs:
+            return [], {"images_processed": 0}
+
+        results, mining_stats = miner.mine_dataset(pairs, show_progress=True)
+        mining_stats_dict = mining_stats.to_dict()
+        print(f"  [HNM/{split}] {mining_stats_dict}")
+
+        # Render each mined region + emit Yes/No samples across classes.
+        out_samples: List[Dict] = []
+        for img_path, regions in results.items():
+            if not regions:
+                continue
+            img = cv2.imread(str(img_path))
+            if img is None:
+                continue
+            for reg_idx, region in enumerate(regions):
+                rendered = self._draw_red_box(img, list(region.bbox))
+                out_name = f"{img_path.stem}_neg{reg_idx}.jpg"
+                cv2.imwrite(str(out_img_dir / out_name), rendered)
+
+                for target in self._active_class_names():
+                    out_samples.append({
+                        "image": f"images/{split}/{out_name}",
+                        "system": self.class_prompts[target],
+                        "question": self.class_questions[target],
+                        "answer": "No",
+                        "class": None,  # not a positive class
+                        "class_id": None,
+                        "target": target,
+                        "bbox": list(region.bbox),
+                        "type": "hard_negative",
+                        "hnm_metadata": {
+                            "similarity": round(region.similarity, 4),
+                            "ring_idx": region.ring_idx,
+                            "source_gt_class": region.source_gt_class,
+                        },
+                    })
+        return out_samples, mining_stats_dict
 
 
 def generate_vlm_dataset(

@@ -154,6 +154,12 @@ class VLMPredictor:
         self.box_thickness = box_thickness if box_thickness is not None else 3
         self.box_color = box_color if box_color is not None else (255, 0, 0)
         self.system_prompt = None
+        # Populated from config.json when the adapter was trained in
+        # qa_format="binary_multiclass" mode. Enables per-class prompt
+        # injection at inference time via `verify()`.
+        self.qa_format: Optional[str] = None
+        self.class_prompts: Dict[str, str] = {}
+        self.class_questions: Dict[str, str] = {}
 
     def _load_vlm(self):
         """Load VLM model lazily."""
@@ -213,7 +219,13 @@ class VLMPredictor:
                         box_color = config.get('box_color', list(self.box_color))
                         self.box_color = tuple(box_color) if isinstance(box_color, list) else box_color
                     self.system_prompt = config.get('system_prompt')
+                    # Binary-multiclass metadata (used by verify())
+                    self.qa_format = config.get('qa_format')
+                    self.class_prompts = dict(config.get('class_prompts') or {})
+                    self.class_questions = dict(config.get('class_questions') or {})
                     print(f"Loaded VLM config: box_thickness={self.box_thickness}, box_color={self.box_color}")
+                    if self.qa_format == 'binary_multiclass':
+                        print(f"  binary_multiclass classes: {sorted(self.class_prompts)}")
                     return
                 except Exception:
                     continue
@@ -273,6 +285,92 @@ class VLMPredictor:
             answers.append(answer)
         return answers
 
+    # ------------------------------------------------------------------
+    # Binary-multiclass verification
+    # ------------------------------------------------------------------
+
+    def verify(
+        self,
+        image: str,
+        bbox: List[float],
+        target_class: str,
+        question: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Verify whether a bounding box contains a target class.
+
+        Intended for adapters trained with ``qa_format="binary_multiclass"``.
+        Injects the class-specific system prompt and question captured at
+        training time, so the inference-time prompting matches the
+        supervision.
+
+        Args:
+            image:         Image path.
+            bbox:          Bounding box [x1, y1, x2, y2] to evaluate.
+            target_class:  Class name to check for (must match one of the
+                           ``class_prompts`` keys from training).
+            question:      Override for the class-specific question.
+
+        Returns:
+            {"label": "Yes"|"No"|"unknown",
+             "raw":   <raw model output>,
+             "target": <target_class>}
+        """
+        self._load_vlm()
+        if self.qa_format != "binary_multiclass":
+            raise RuntimeError(
+                "verify() requires an adapter trained with "
+                "qa_format='binary_multiclass'. Loaded adapter qa_format="
+                f"{self.qa_format!r}."
+            )
+        if target_class not in self.class_prompts:
+            raise ValueError(
+                f"Unknown target_class {target_class!r}. "
+                f"Available: {sorted(self.class_prompts)}"
+            )
+
+        system = self.class_prompts[target_class]
+        q = question or self.class_questions.get(
+            target_class,
+            f"Is there a {target_class} in the red bounding box? Answer Yes or No.",
+        )
+        raw = self.vlm.generate(
+            image=image,
+            question=q,
+            bbox=bbox,
+            box_thickness=self.box_thickness,
+            box_color=self.box_color,
+            system_prompt=system,
+        )
+        first = (str(raw).strip().split() or [""])[0]
+        normalized = first.strip(".,!?\"'").capitalize()
+        label = normalized if normalized in ("Yes", "No") else "unknown"
+        return {"label": label, "raw": raw, "target": target_class}
+
+    def verify_all(
+        self,
+        image: str,
+        bbox: List[float],
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Run :meth:`verify` for every class the adapter was trained on.
+
+        Useful when a single detector bbox needs to be classified against
+        all configured classes (e.g. "handgun vs rifle vs neither").
+
+        Returns:
+            Mapping from class name to the :meth:`verify` result dict.
+        """
+        self._load_vlm()
+        if self.qa_format != "binary_multiclass":
+            raise RuntimeError(
+                "verify_all() requires qa_format='binary_multiclass'."
+            )
+        return {
+            cls: self.verify(image=image, bbox=bbox, target_class=cls)
+            for cls in sorted(self.class_prompts)
+        }
+
 
 class UnifiedPredictor:
     """
@@ -325,6 +423,12 @@ class UnifiedPredictor:
         self.box_thickness = box_thickness if box_thickness is not None else 3
         self.box_color = box_color if box_color is not None else (255, 0, 0)
         self.system_prompt = None
+        # Populated from config.json when the adapter was trained in
+        # qa_format="binary_multiclass" mode. Enables per-class prompt
+        # injection at inference time via `verify()`.
+        self.qa_format: Optional[str] = None
+        self.class_prompts: Dict[str, str] = {}
+        self.class_questions: Dict[str, str] = {}
 
     def _load_vlm(self):
         """Load VLM model lazily."""
@@ -387,7 +491,13 @@ class UnifiedPredictor:
                         box_color = config.get('box_color', list(self.box_color))
                         self.box_color = tuple(box_color) if isinstance(box_color, list) else box_color
                     self.system_prompt = config.get('system_prompt')
+                    # Binary-multiclass metadata (used by verify())
+                    self.qa_format = config.get('qa_format')
+                    self.class_prompts = dict(config.get('class_prompts') or {})
+                    self.class_questions = dict(config.get('class_questions') or {})
                     print(f"Loaded VLM config: box_thickness={self.box_thickness}, box_color={self.box_color}")
+                    if self.qa_format == 'binary_multiclass':
+                        print(f"  binary_multiclass classes: {sorted(self.class_prompts)}")
                     return
                 except Exception:
                     continue

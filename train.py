@@ -45,8 +45,12 @@ def main():
     parser.add_argument("--vlm-epochs", type=int, default=3)
     parser.add_argument("--vlm-precision", type=str, default="4bit")
     parser.add_argument("--vlm-max-samples", type=int, default=None, help="Max training samples for VLM")
-    parser.add_argument("--skip-yolo", action="store_true")
-    parser.add_argument("--skip-vlm-data", action="store_true")
+    parser.add_argument("--skip-yolo", action="store_true",
+                        help="Skip YOLO training (use existing weights or only run VLM stages).")
+    parser.add_argument("--skip-vlm-data", action="store_true",
+                        help="Skip VLM dataset generation (reuse existing vlm/ folder).")
+    parser.add_argument("--skip-vlm-training", action="store_true",
+                        help="Skip VLM training step. Useful for dataset-only runs.")
 
     # Output
     parser.add_argument("--save-dir", type=str)
@@ -94,6 +98,11 @@ def main():
     data_path = Path(args.data)
     if not data_path.is_absolute():
         data_path = Path(__file__).parent / data_path
+
+    # Preflight: validate dataset.yaml and resolve relative path: to absolute.
+    # Replaces cryptic downstream errors with a single clear message.
+    from yologen.utils.preflight import preflight_dataset
+    data_path = preflight_dataset(data_path, vlm_dataset_config=vlm_dataset_config)
 
     # Output directory
     if args.save_dir:
@@ -169,7 +178,7 @@ def main():
         print(f"Output: {vlm_data_dir}")
 
     # ==================== VLM TRAINING ====================
-    if args.vlm:
+    if args.vlm and not args.skip_vlm_training:
         print("\n" + "=" * 60)
         print("  STAGE 3: VLM Training")
         print("=" * 60)

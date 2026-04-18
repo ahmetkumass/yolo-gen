@@ -18,7 +18,11 @@ pyyaml>=6.0
 tqdm>=4.65.0
 
 # VLM (optional - install if using VLM features)
-transformers>=4.57.0
+# transformers 5.x ships a Qwen3-VL API that requires mm_token_type_ids
+# and rebuilds the multimodal input pipeline; the current trainer/
+# negative_miner code is written against the 4.57.x API. Upper-bound
+# until the 5.x migration lands.
+transformers>=4.57.0,<5.0
 accelerate>=0.25.0
 peft>=0.7.0
 bitsandbytes>=0.41.0

@@ -18,18 +18,40 @@ from tqdm import tqdm
 
 
 class VLMDataset(Dataset):
-    """Dataset for VLM training with Q&A pairs."""
+    """Dataset for VLM training with Q&A pairs.
 
-    def __init__(self, jsonl_path: str, image_root: str, max_samples: int = None):
+    Each worker lazy-loads its own HF processor so the heavy image /
+    tokenizer work runs in parallel off the main thread.  The main
+    training loop only has to move the already-prepared tensors to GPU.
+    """
+
+    def __init__(
+        self,
+        jsonl_path: str,
+        image_root: str,
+        model_name: str,
+        min_pixels: Optional[int] = None,
+        max_pixels: Optional[int] = None,
+        default_system_prompt: Optional[str] = None,
+        max_samples: int = None,
+    ):
         """
         Args:
             jsonl_path: Path to JSONL file with Q&A samples
             image_root: Root directory for images
-            max_samples: Maximum number of samples to use (None = use all)
+            model_name: HF model id (used to instantiate the processor)
+            min_pixels / max_pixels: processor image-size bounds
+            default_system_prompt: system prompt to use when a sample has
+                no per-sample system field (descriptive mode)
+            max_samples: optional cap on the sample count
         """
         import random
 
         self.image_root = Path(image_root)
+        self.model_name = model_name
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
+        self.default_system_prompt = default_system_prompt or ""
         self.samples = []
 
         with open(jsonl_path, 'r') as f:
@@ -45,18 +67,74 @@ class VLMDataset(Dataset):
             self.samples = self.samples[:max_samples]
             print(f"Using {max_samples} samples (from {total} total)")
 
+        self._processor = None  # lazy; one per worker
+
+    def _get_processor(self):
+        if self._processor is None:
+            from transformers import AutoProcessor
+            kwargs = {"trust_remote_code": True}
+            if self.min_pixels is not None:
+                kwargs["min_pixels"] = self.min_pixels
+            if self.max_pixels is not None:
+                kwargs["max_pixels"] = self.max_pixels
+            self._processor = AutoProcessor.from_pretrained(self.model_name, **kwargs)
+        return self._processor
+
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
+        from qwen_vl_utils import process_vision_info
+        processor = self._get_processor()
         sample = self.samples[idx]
+        image_path = str(self.image_root / sample['image'])
+
+        system = sample.get('system') or self.default_system_prompt
+        question = sample['question']
+        answer = sample['answer']
+
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image_path},
+                    {"type": "text", "text": question},
+                ],
+            },
+        ]
+
+        text = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True,
+        )
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
         return {
-            'image_path': str(self.image_root / sample['image']),
-            'question': sample['question'],
-            'answer': sample['answer'],
-            'class': sample.get('class', ''),
-            'bbox': sample.get('bbox', []),  # Empty list instead of None
+            'inputs': dict(inputs),   # CPU tensors; caller moves to GPU
+            'system': system,
+            'answer': answer,
         }
+
+
+def _vlm_collate_single(batch):
+    """Trainer runs at batch_size=1; unwrap the single already-prepared sample.
+
+    Default collate would try to stack per-sample tensors whose shapes
+    can differ (e.g. image_grid_thw), which fails.  Multi-batch would
+    need a processor(pad=...)-based collate and is not enabled yet.
+    """
+    if len(batch) != 1:
+        raise RuntimeError(
+            "VLMTrainer only supports batch_size=1 (use gradient_accumulation "
+            "instead); got a batch of size " + str(len(batch))
+        )
+    return batch[0]
 
 
 def _clear_gpu_memory():
@@ -170,6 +248,8 @@ class VLMTrainer:
         name: str = None,
         resume: str = None,
         max_samples: int = None,
+        num_workers: int = 4,
+        pin_memory: bool = True,
     ) -> Dict[str, Any]:
         """
         Train VLM with QLoRA.
@@ -220,18 +300,34 @@ class VLMTrainer:
             system_prompt = vlm_config.get('system_prompt')
             print(f"Loaded system_prompt from config: {'yes' if system_prompt else 'no'}")
 
-        # Dataset
-        train_dataset = VLMDataset(str(train_jsonl), str(data_path), max_samples=max_samples)
+        # Load VLM first — the dataset needs to know the model name and
+        # pixel limits so worker processes can instantiate matching
+        # processors without re-inventing config.
+        _clear_gpu_memory()
+        self._load_vlm()
+
+        # Dataset + DataLoader.  num_workers > 0 is a ~5-8x speedup: the
+        # Qwen processor (apply_chat_template, process_vision_info,
+        # image tokenization) is CPU-heavy and was previously blocking
+        # the training step on the main thread.
+        train_dataset = VLMDataset(
+            jsonl_path=str(train_jsonl),
+            image_root=str(data_path),
+            model_name=self.model_name,
+            min_pixels=self.min_pixels,
+            max_pixels=self.max_pixels,
+            default_system_prompt=system_prompt,
+            max_samples=max_samples,
+        )
         train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
             shuffle=True,
-            num_workers=0,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            collate_fn=_vlm_collate_single if batch_size == 1 else None,
+            persistent_workers=(num_workers > 0),
         )
-
-        # Clear memory and load VLM
-        _clear_gpu_memory()
-        self._load_vlm()
 
         # Resume from adapter
         if resume:
@@ -254,18 +350,15 @@ class VLMTrainer:
 
             for batch_idx, batch in enumerate(pbar):
                 try:
-                    # Get sample
-                    image_path = batch['image_path'][0] if isinstance(batch['image_path'], list) else batch['image_path']
-                    question = batch['question'][0] if isinstance(batch['question'], list) else batch['question']
-                    answer = batch['answer'][0] if isinstance(batch['answer'], list) else batch['answer']
-
-                    # Prepare input (with system_prompt for consistent training)
-                    inputs = self.vlm.prepare_input(
-                        image=image_path,
-                        question=question,
-                        bbox=None,
-                        system_prompt=system_prompt,
-                    )
+                    # Dataset workers have already tokenized the image + text
+                    # (with the sample's per-sample system prompt applied).
+                    # Main thread only needs to move tensors to GPU.
+                    inputs = batch['inputs']
+                    device = self.vlm.model.device
+                    inputs = {
+                        k: (v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v)
+                        for k, v in inputs.items()
+                    }
 
                     # Labels
                     labels = inputs['input_ids'].clone()
