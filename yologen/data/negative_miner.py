@@ -250,11 +250,20 @@ class NegativeMiner:
         if self._vlm_model is not None:
             return
         import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor
+        from transformers import AutoProcessor
+
+        # Modern multimodal VLMs (Qwen2-VL, Qwen3-VL, Qwen3.5-VL, LLaVA, etc.)
+        # register under AutoModelForImageTextToText. The older
+        # AutoModelForCausalLM does not recognize the multimodal config
+        # classes and raises ValueError on load.
+        try:
+            from transformers import AutoModelForImageTextToText as _AutoVLM
+        except ImportError:  # transformers < 4.45
+            from transformers import AutoModelForVision2Seq as _AutoVLM
 
         name = self.config["vlm_verify"]["model"]
         self._vlm_processor = AutoProcessor.from_pretrained(name, trust_remote_code=True)
-        self._vlm_model = AutoModelForCausalLM.from_pretrained(
+        self._vlm_model = _AutoVLM.from_pretrained(
             name, dtype=torch.bfloat16, trust_remote_code=True, device_map="auto",
         )
         self._vlm_model.eval()
