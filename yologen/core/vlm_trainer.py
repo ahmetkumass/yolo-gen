@@ -324,12 +324,20 @@ class VLMTrainer:
                         for k, v in inputs.items()
                     }
 
-                    # Labels (teacher forcing on the whole prompt, as
-                    # in the original training loop). Per-family
-                    # attention_mask / image_* tensors are forwarded
-                    # via **inputs so the adapter receives only what
-                    # it asked for.
-                    labels = inputs['input_ids'].clone()
+                    # Proper teacher-forcing on the assistant answer:
+                    # the per-family worker preprocessor builds a
+                    # ``labels`` tensor where prompt tokens are masked
+                    # with -100 and only the answer tokens carry real
+                    # IDs, so the VLM sees supervised Yes / No signal
+                    # (not prompt reconstruction, which is what the
+                    # original ``labels = input_ids.clone()`` produced).
+                    # Fall back to the old behaviour when a preprocessor
+                    # hasn't been updated yet — keeps older adapters
+                    # importable without a simultaneous trainer upgrade.
+                    if 'labels' in inputs:
+                        labels = inputs.pop('labels')
+                    else:
+                        labels = inputs['input_ids'].clone()
 
                     with torch.cuda.amp.autocast(dtype=torch.bfloat16):
                         outputs = self.vlm.forward(**inputs, labels=labels)

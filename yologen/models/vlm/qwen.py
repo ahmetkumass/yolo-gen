@@ -55,10 +55,10 @@ class QwenWorkerPreprocessor(VLMWorkerPreprocessor):
         from qwen_vl_utils import process_vision_info
         processor = self._ensure_processor()
 
-        messages = []
+        prompt_messages = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append(
+            prompt_messages.append({"role": "system", "content": system_prompt})
+        prompt_messages.append(
             {
                 "role": "user",
                 "content": [
@@ -67,18 +67,40 @@ class QwenWorkerPreprocessor(VLMWorkerPreprocessor):
                 ],
             }
         )
-        text = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+        # Double-tokenize so we can supervise on answer tokens only.
+        # prompt_text ends with the assistant role header; full_text
+        # continues with the assistant's answer. prompt_len gives us
+        # the boundary for masking labels to -100.
+        image_inputs, video_inputs = process_vision_info(prompt_messages)
+        prompt_text = processor.apply_chat_template(
+            prompt_messages, tokenize=False, add_generation_prompt=True
         )
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = processor(
-            text=[text],
+        prompt_inputs = processor(
+            text=[prompt_text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=False,
+            return_tensors="pt",
+        )
+        prompt_len = prompt_inputs["input_ids"].shape[-1]
+
+        full_messages = prompt_messages + [
+            {"role": "assistant", "content": answer}
+        ]
+        full_text = processor.apply_chat_template(
+            full_messages, tokenize=False, add_generation_prompt=False
+        )
+        full_inputs = processor(
+            text=[full_text],
             images=image_inputs,
             videos=video_inputs,
             padding=True,
             return_tensors="pt",
         )
-        return dict(inputs)
+        labels = full_inputs["input_ids"].clone()
+        labels[:, :prompt_len] = -100
+        full_inputs["labels"] = labels
+        return dict(full_inputs)
 
 # Pixel multipliers for different Qwen versions (for image resizing)
 QWEN25_PIXEL_MULT = 28  # Qwen 2.5 VL rounds to multiples of 28

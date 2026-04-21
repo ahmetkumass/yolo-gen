@@ -17,9 +17,11 @@ from yologen.models.vlm.base import (
 # with the factory. New families plug in here.
 from yologen.models.vlm import qwen      # noqa: F401 — registers QwenVLM
 from yologen.models.vlm import internvl  # noqa: F401 — registers InternVLM
+from yologen.models.vlm import glm       # noqa: F401 — registers GLMVLM
 
 from yologen.models.vlm.qwen import QwenVLM, create_qwen_vlm
 from yologen.models.vlm.internvl import InternVLM, create_internvl
+from yologen.models.vlm.glm import GLMVLM, create_glm_vlm
 
 __all__ = [
     "VLMBase",
@@ -29,7 +31,9 @@ __all__ = [
     "registered_adapters",
     "QwenVLM",
     "InternVLM",
+    "GLMVLM",
     # Back-compat aliases — existing callers may still use these
     "create_qwen_vlm",
     "create_internvl",
+    "create_glm_vlm",
 ]
