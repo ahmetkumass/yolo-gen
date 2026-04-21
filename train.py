@@ -12,6 +12,7 @@ Usage:
 import argparse
 import gc
 import json
+import sys
 import yaml
 from pathlib import Path
 from datetime import datetime
@@ -71,14 +72,32 @@ def main():
         yolo_cfg = cfg.get('yolo', {})
         vlm_cfg = cfg.get('vlm', {})
         vlm_dataset_config = cfg.get('vlm_dataset')  # VLM dataset generation settings
-        args.model = yolo_cfg.get('model', args.model)
-        args.epochs = yolo_cfg.get('epochs', args.epochs)
-        args.batch = yolo_cfg.get('batch', args.batch)
-        args.vlm = vlm_cfg.get('enabled', args.vlm)
-        args.vlm_model = vlm_cfg.get('model', args.vlm_model)
-        args.vlm_epochs = vlm_cfg.get('epochs', args.vlm_epochs)
-        args.vlm_precision = vlm_cfg.get('precision', args.vlm_precision)
-        args.vlm_max_samples = vlm_cfg.get('max_samples', args.vlm_max_samples)
+
+        # CLI overrides config overrides argparse defaults. Detecting
+        # "did the user pass this flag?" purely from args would fail
+        # when the user explicitly passes a value that happens to
+        # equal the argparse default (e.g. --vlm-model Qwen/Qwen3-VL-4B
+        # when that's also the default). Scan sys.argv for the raw
+        # flag so we get a reliable "CLI-specified" signal.
+        _cli_specified: set = {
+            a.lstrip("-").split("=", 1)[0].replace("-", "_")
+            for a in sys.argv[1:] if a.startswith("--")
+        }
+
+        def _from_cfg(attr, cfg_dict, cfg_key):
+            if attr in _cli_specified:
+                return  # user set via CLI — keep that
+            if cfg_key in cfg_dict:
+                setattr(args, attr, cfg_dict[cfg_key])
+
+        _from_cfg('model', yolo_cfg, 'model')
+        _from_cfg('epochs', yolo_cfg, 'epochs')
+        _from_cfg('batch', yolo_cfg, 'batch')
+        _from_cfg('vlm', vlm_cfg, 'enabled')
+        _from_cfg('vlm_model', vlm_cfg, 'model')
+        _from_cfg('vlm_epochs', vlm_cfg, 'epochs')
+        _from_cfg('vlm_precision', vlm_cfg, 'precision')
+        _from_cfg('vlm_max_samples', vlm_cfg, 'max_samples')
         # VLM training params
         args.vlm_batch_size = vlm_cfg.get('batch_size', 1)
         args.vlm_lr = vlm_cfg.get('lr', 2e-5)
@@ -317,9 +336,13 @@ def main():
             print(f"  {name}: {path}")
 
     print("\nInference:")
-    print(f"  python predict.py --weights {results.get('yolo_weights', 'path/to/best.pt')} --source image.jpg")
+    yolo_weights = results.get('yolo_weights', 'path/to/best.pt')
+    print(f"  python predict.py --weights {yolo_weights} --source image.jpg")
     if results.get('vlm_adapter'):
-        print(f"  python predict.py --weights {results['yolo_weights']} --source image.jpg --vlm --vlm-adapter {results['vlm_adapter']}")
+        print(
+            f"  python predict.py --weights {yolo_weights} --source image.jpg "
+            f"--vlm --vlm-adapter {results['vlm_adapter']}"
+        )
 
 
 if __name__ == "__main__":

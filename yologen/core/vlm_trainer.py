@@ -18,20 +18,20 @@ from tqdm import tqdm
 
 
 class VLMDataset(Dataset):
-    """Dataset for VLM training with Q&A pairs.
+    """Family-agnostic dataset for VLM training with Q&A pairs.
 
-    Each worker lazy-loads its own HF processor so the heavy image /
-    tokenizer work runs in parallel off the main thread.  The main
-    training loop only has to move the already-prepared tensors to GPU.
+    Workers run a :class:`~yologen.models.vlm.base.VLMWorkerPreprocessor`
+    supplied by the trainer (Qwen or InternVL implementation, depending
+    on the model) in parallel, so heavy image/tokenizer work stays off
+    the main thread. The main loop only moves the already-prepared
+    tensors to GPU.
     """
 
     def __init__(
         self,
         jsonl_path: str,
         image_root: str,
-        model_name: str,
-        min_pixels: Optional[int] = None,
-        max_pixels: Optional[int] = None,
+        preprocessor,
         default_system_prompt: Optional[str] = None,
         max_samples: int = None,
     ):
@@ -39,18 +39,17 @@ class VLMDataset(Dataset):
         Args:
             jsonl_path: Path to JSONL file with Q&A samples
             image_root: Root directory for images
-            model_name: HF model id (used to instantiate the processor)
-            min_pixels / max_pixels: processor image-size bounds
-            default_system_prompt: system prompt to use when a sample has
-                no per-sample system field (descriptive mode)
+            preprocessor: a picklable
+                :class:`~yologen.models.vlm.base.VLMWorkerPreprocessor`
+                — see :meth:`VLMBase.build_worker_preprocessor`
+            default_system_prompt: system prompt to use when a sample
+                has no per-sample ``system`` field (descriptive mode)
             max_samples: optional cap on the sample count
         """
         import random
 
         self.image_root = Path(image_root)
-        self.model_name = model_name
-        self.min_pixels = min_pixels
-        self.max_pixels = max_pixels
+        self.preprocessor = preprocessor
         self.default_system_prompt = default_system_prompt or ""
         self.samples = []
 
@@ -60,61 +59,23 @@ class VLMDataset(Dataset):
                 if line:
                     self.samples.append(json.loads(line))
 
-        # Limit samples if max_samples is specified
         if max_samples and len(self.samples) > max_samples:
             total = len(self.samples)
             random.shuffle(self.samples)
             self.samples = self.samples[:max_samples]
             print(f"Using {max_samples} samples (from {total} total)")
 
-        self._processor = None  # lazy; one per worker
-
-    def _get_processor(self):
-        if self._processor is None:
-            from transformers import AutoProcessor
-            kwargs = {"trust_remote_code": True}
-            if self.min_pixels is not None:
-                kwargs["min_pixels"] = self.min_pixels
-            if self.max_pixels is not None:
-                kwargs["max_pixels"] = self.max_pixels
-            self._processor = AutoProcessor.from_pretrained(self.model_name, **kwargs)
-        return self._processor
-
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        from qwen_vl_utils import process_vision_info
-        processor = self._get_processor()
         sample = self.samples[idx]
         image_path = str(self.image_root / sample['image'])
-
         system = sample.get('system') or self.default_system_prompt
         question = sample['question']
         answer = sample['answer']
 
-        messages = [
-            {"role": "system", "content": system},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": image_path},
-                    {"type": "text", "text": question},
-                ],
-            },
-        ]
-
-        text = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-        )
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
+        inputs = self.preprocessor(image_path, question, system, answer)
         return {
             'inputs': dict(inputs),   # CPU tensors; caller moves to GPU
             'system': system,
@@ -212,9 +173,9 @@ class VLMTrainer:
             sys.path.insert(0, str(parent_path))
 
         try:
-            from yologen.models.vlm.qwen import create_qwen_vlm
+            from yologen.models.vlm import create_vlm
 
-            self.vlm = create_qwen_vlm(
+            self.vlm = create_vlm(
                 model_name=self.model_name,
                 load_in_4bit=(self.precision == "4bit"),
                 load_in_8bit=(self.precision == "8bit"),
@@ -306,16 +267,19 @@ class VLMTrainer:
         _clear_gpu_memory()
         self._load_vlm()
 
-        # Dataset + DataLoader.  num_workers > 0 is a ~5-8x speedup: the
-        # Qwen processor (apply_chat_template, process_vision_info,
-        # image tokenization) is CPU-heavy and was previously blocking
-        # the training step on the main thread.
-        train_dataset = VLMDataset(
-            jsonl_path=str(train_jsonl),
-            image_root=str(data_path),
+        # Family-agnostic dataset + DataLoader. Each adapter provides
+        # its own worker preprocessor; num_workers > 0 is a ~5-8x
+        # speedup because the CPU-heavy per-sample work (apply_chat_template,
+        # image tiling / tokenization) runs in parallel off the main thread.
+        preprocessor = type(self.vlm).build_worker_preprocessor(
             model_name=self.model_name,
             min_pixels=self.min_pixels,
             max_pixels=self.max_pixels,
+        )
+        train_dataset = VLMDataset(
+            jsonl_path=str(train_jsonl),
+            image_root=str(data_path),
+            preprocessor=preprocessor,
             default_system_prompt=system_prompt,
             max_samples=max_samples,
         )
@@ -360,18 +324,15 @@ class VLMTrainer:
                         for k, v in inputs.items()
                     }
 
-                    # Labels
+                    # Labels (teacher forcing on the whole prompt, as
+                    # in the original training loop). Per-family
+                    # attention_mask / image_* tensors are forwarded
+                    # via **inputs so the adapter receives only what
+                    # it asked for.
                     labels = inputs['input_ids'].clone()
 
-                    # Forward pass
                     with torch.cuda.amp.autocast(dtype=torch.bfloat16):
-                        outputs = self.vlm.forward(
-                            input_ids=inputs['input_ids'],
-                            attention_mask=inputs['attention_mask'],
-                            pixel_values=inputs.get('pixel_values'),
-                            image_grid_thw=inputs.get('image_grid_thw'),
-                            labels=labels,
-                        )
+                        outputs = self.vlm.forward(**inputs, labels=labels)
 
                     if outputs['loss'] is not None:
                         loss = outputs['loss'] / gradient_accumulation
