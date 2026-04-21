@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from yologen.models.vlm import (
+    GLMVLM,
     InternVLM,
     QwenVLM,
     VLMBase,
@@ -28,6 +29,11 @@ class TestRegistry:
         adapters = registered_adapters()
         names = [cls_name for _, cls_name in adapters]
         assert "InternVLM" in names
+
+    def test_glm_is_registered(self):
+        adapters = registered_adapters()
+        names = [cls_name for _, cls_name in adapters]
+        assert "GLMVLM" in names
 
     def test_registered_patterns_are_strings(self):
         for pattern, cls_name in registered_adapters():
@@ -64,13 +70,28 @@ class TestFactoryMatching:
         assert isinstance(v, InternVLM)
         assert v.model_name == model_name
 
-    def test_qwen_and_internvl_patterns_do_not_overlap(self):
-        # A Qwen id must not accidentally match the InternVL pattern
-        # and vice versa.
+    @pytest.mark.parametrize(
+        "model_name",
+        [
+            "zai-org/GLM-4.6V-Flash",
+            "zai-org/GLM-4.6V",
+            "zai-org/GLM-4.5V",
+            "zai-org/GLM-4.1V-9B-Thinking",
+        ],
+    )
+    def test_glm_variants_route_to_glm(self, model_name):
+        v = create_vlm(model_name)
+        assert isinstance(v, GLMVLM)
+        assert v.model_name == model_name
+
+    def test_patterns_do_not_overlap_across_families(self):
+        # Each family's id must route to exactly the right adapter.
         qwen = create_vlm("Qwen/Qwen3-VL-4B-Instruct")
-        assert not isinstance(qwen, InternVLM)
+        assert not isinstance(qwen, (InternVLM, GLMVLM))
         intern = create_vlm("OpenGVLab/InternVL3_5-4B")
-        assert not isinstance(intern, QwenVLM)
+        assert not isinstance(intern, (QwenVLM, GLMVLM))
+        glm = create_vlm("zai-org/GLM-4.6V-Flash")
+        assert not isinstance(glm, (QwenVLM, InternVLM))
 
     def test_unknown_model_raises_valueerror(self):
         with pytest.raises(ValueError) as exc:
@@ -105,7 +126,7 @@ class TestVLMBaseContract:
         with pytest.raises(TypeError):
             VLMBase()  # type: ignore[abstract]
 
-    @pytest.mark.parametrize("cls", [QwenVLM, InternVLM])
+    @pytest.mark.parametrize("cls", [QwenVLM, InternVLM, GLMVLM])
     def test_adapter_provides_all_required_methods(self, cls):
         # Every abstract method in VLMBase must have a concrete
         # implementation in each adapter.
@@ -124,6 +145,7 @@ class TestWorkerPreprocessor:
         [
             (QwenVLM, "Qwen/Qwen3-VL-4B-Instruct"),
             (InternVLM, "OpenGVLab/InternVL3_5-4B"),
+            (GLMVLM, "zai-org/GLM-4.6V-Flash"),
         ],
     )
     def test_build_worker_preprocessor_returns_base(self, cls, model_name):
@@ -140,6 +162,7 @@ class TestWorkerPreprocessor:
         for cls, name in [
             (QwenVLM, "Qwen/Qwen3-VL-4B-Instruct"),
             (InternVLM, "OpenGVLab/InternVL3_5-4B"),
+            (GLMVLM, "zai-org/GLM-4.6V-Flash"),
         ]:
             prep = cls.build_worker_preprocessor(name)
             restored = pickle.loads(pickle.dumps(prep))
