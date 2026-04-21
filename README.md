@@ -102,10 +102,27 @@ vlm_dataset:
 
 The approach is **domain-agnostic**. The same config pattern works for weapons, defects, medical imaging, vehicle damage, or any detection task where "looks like but is not" is a meaningful concept.
 
+## Supported VLM Families
+
+Any of the following can be passed as `--vlm-model` (or `vlm.model`
+in a config). The factory picks the right adapter automatically based
+on the HuggingFace id. Adding a new family is a single-file addition
+against the `VLMBase` interface in `yologen/models/vlm/`.
+
+| Family | Sizes | HuggingFace IDs |
+|---|---|---|
+| **Qwen 2.5-VL** | 3B, 7B | `Qwen/Qwen2.5-VL-{3B,7B}-Instruct` |
+| **Qwen 3-VL** (default) | 2B, 4B, 8B | `Qwen/Qwen3-VL-{2B,4B,8B}-Instruct` |
+| **InternVL 3.5** | 1B, 4B, 8B | `OpenGVLab/InternVL3_5-{1B,4B,8B}` |
+
+All VLMs train with 4-bit QLoRA + LoRA by default; the per-family
+adapter handles its own image preprocessing, chat template, and LoRA
+target modules.
+
 ## Built With
 
 - [Ultralytics YOLOv8/v11](https://github.com/ultralytics/ultralytics) — state-of-the-art YOLO implementation
-- [Qwen2.5-VL](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) / [Qwen3-VL](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) — vision-language models
+- [Qwen2.5-VL](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct) / [Qwen3-VL](https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct) / [InternVL 3.5](https://huggingface.co/OpenGVLab/InternVL3_5-4B) — vision-language models
 - [PEFT / QLoRA](https://github.com/huggingface/peft) — parameter-efficient fine-tuning
 - [DINOv2](https://github.com/facebookresearch/dinov2) — self-supervised vision features for hard negative mining
 
@@ -277,7 +294,7 @@ yolo:
 
 vlm:
   enabled: true
-  model: Qwen/Qwen3-VL-4B-Instruct     # 2B / 4B / 8B available
+  model: Qwen/Qwen3-VL-4B-Instruct     # Qwen2.5-VL / Qwen3-VL / InternVL 3.5 supported
   epochs: 3
   precision: 4bit
 
