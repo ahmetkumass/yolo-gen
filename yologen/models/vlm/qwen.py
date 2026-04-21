@@ -19,6 +19,67 @@ from typing import Dict, Any, Optional, List
 
 import torch
 
+from yologen.models.vlm.base import VLMBase, VLMWorkerPreprocessor, register_vlm
+
+
+class QwenWorkerPreprocessor(VLMWorkerPreprocessor):
+    """Picklable preprocessor for Qwen VL DataLoader workers.
+
+    Lazy-loads the HF ``AutoProcessor`` on first call so each worker
+    performs exactly one load, not once per sample.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        min_pixels: Optional[int] = None,
+        max_pixels: Optional[int] = None,
+    ) -> None:
+        self.model_name = model_name
+        self.min_pixels = min_pixels
+        self.max_pixels = max_pixels
+        self._processor = None
+
+    def _ensure_processor(self):
+        if self._processor is None:
+            from transformers import AutoProcessor
+            kwargs = {"trust_remote_code": True}
+            if self.min_pixels is not None:
+                kwargs["min_pixels"] = self.min_pixels
+            if self.max_pixels is not None:
+                kwargs["max_pixels"] = self.max_pixels
+            self._processor = AutoProcessor.from_pretrained(self.model_name, **kwargs)
+        return self._processor
+
+    def __call__(self, image_path, question, system_prompt, answer):
+        from qwen_vl_utils import process_vision_info
+        processor = self._ensure_processor()
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image_path},
+                    {"type": "text", "text": question},
+                ],
+            }
+        )
+        text = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt",
+        )
+        return dict(inputs)
+
 # Pixel multipliers for different Qwen versions (for image resizing)
 QWEN25_PIXEL_MULT = 28  # Qwen 2.5 VL rounds to multiples of 28
 QWEN3_PIXEL_MULT = 32   # Qwen 3 VL rounds to multiples of 32
@@ -42,7 +103,18 @@ def get_pixel_multiplier(model_name: str) -> int:
     return QWEN3_PIXEL_MULT if version == "qwen3" else QWEN25_PIXEL_MULT
 
 
-class QwenVLM:
+@register_vlm(r"Qwen/(?:Qwen2\.5-VL|Qwen3-VL).*")
+class QwenVLM(VLMBase):  # noqa: D401 — class docstring below
+    @classmethod
+    def build_worker_preprocessor(
+        cls, model_name: str, **config
+    ) -> QwenWorkerPreprocessor:
+        return QwenWorkerPreprocessor(
+            model_name=model_name,
+            min_pixels=config.get("min_pixels"),
+            max_pixels=config.get("max_pixels"),
+        )
+
     """
     Qwen Vision-Language Model wrapper with QLoRA support.
 
@@ -356,19 +428,14 @@ class QwenVLM:
         pixel_values: Optional[torch.Tensor] = None,
         image_grid_thw: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
+        **_ignored,
     ) -> Dict[str, Any]:
-        """
-        Forward pass through the model.
+        """Forward pass through the underlying HF model.
 
-        Args:
-            input_ids: Token IDs
-            attention_mask: Attention mask
-            pixel_values: Image pixel values
-            image_grid_thw: Image grid dimensions
-            labels: Labels for loss calculation
-
-        Returns:
-            Dictionary with loss and logits
+        Accepts ``**_ignored`` so a family-agnostic trainer can pass
+        every tensor the preprocessor produced; keys the Qwen forward
+        does not care about (e.g. InternVL's ``image_flags``) are
+        dropped silently.
         """
         outputs = self.model(
             input_ids=input_ids,

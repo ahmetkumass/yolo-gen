@@ -175,9 +175,9 @@ class VLMPredictor:
             self._load_vlm_config()
 
         try:
-            from yologen.models.vlm.qwen import create_qwen_vlm
+            from yologen.models.vlm import create_vlm
 
-            self.vlm = create_qwen_vlm(
+            self.vlm = create_vlm(
                 model_name=self.vlm_model,
                 load_in_4bit=(self.vlm_precision == "4bit"),
                 load_in_8bit=(self.vlm_precision == "8bit"),
@@ -444,9 +444,9 @@ class UnifiedPredictor:
             self._load_vlm_config()
 
         try:
-            from yologen.models.vlm.qwen import create_qwen_vlm
+            from yologen.models.vlm import create_vlm
 
-            self.vlm = create_qwen_vlm(
+            self.vlm = create_vlm(
                 model_name=self.vlm_model,
                 load_in_4bit=(self.vlm_precision == "4bit"),
                 load_in_8bit=(self.vlm_precision == "8bit"),

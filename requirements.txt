@@ -27,3 +27,8 @@ accelerate>=0.25.0
 peft>=0.7.0
 bitsandbytes>=0.41.0
 qwen-vl-utils>=0.0.14  # Required for Qwen3-VL support
+
+# InternVL 3.5 support — the model's trust_remote_code module imports
+# einops (for reshape) and timm (for ViT building blocks).
+einops>=0.7.0
+timm>=0.9.0
