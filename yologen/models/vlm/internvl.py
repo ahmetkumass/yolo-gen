@@ -216,25 +216,42 @@ class InternVLWorkerPreprocessor(VLMWorkerPreprocessor):
         image_placeholder = (
             "<img>" + "<IMG_CONTEXT>" * (num_image_token * num_tiles) + "</img>"
         )
-        messages = []
+        prompt_messages = []
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+            prompt_messages.append({"role": "system", "content": system_prompt})
         user_content = (
             question.replace("<image>", image_placeholder)
             if "<image>" in question
             else f"{image_placeholder}\n{question}"
         )
-        messages.append({"role": "user", "content": user_content})
+        prompt_messages.append({"role": "user", "content": user_content})
 
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+        # Double-tokenize to build answer-only labels. Prompt text ends
+        # at the assistant role header (via add_generation_prompt=True);
+        # full text appends the assistant answer so the model receives
+        # real supervision on the Yes/No tokens.
+        prompt_text = tokenizer.apply_chat_template(
+            prompt_messages, tokenize=False, add_generation_prompt=True
         )
-        tokenized = tokenizer(prompt, return_tensors="pt", padding=False)
-        image_flags = torch.ones(num_tiles, dtype=torch.long)
+        prompt_tokenized = tokenizer(prompt_text, return_tensors="pt", padding=False)
+        prompt_len = prompt_tokenized["input_ids"].shape[-1]
 
+        full_messages = prompt_messages + [
+            {"role": "assistant", "content": answer}
+        ]
+        full_text = tokenizer.apply_chat_template(
+            full_messages, tokenize=False, add_generation_prompt=False
+        )
+        full_tokenized = tokenizer(full_text, return_tensors="pt", padding=False)
+
+        labels = full_tokenized["input_ids"].clone()
+        labels[:, :prompt_len] = -100
+
+        image_flags = torch.ones(num_tiles, dtype=torch.long)
         return {
-            "input_ids": tokenized["input_ids"],
-            "attention_mask": tokenized["attention_mask"],
+            "input_ids": full_tokenized["input_ids"],
+            "attention_mask": full_tokenized["attention_mask"],
+            "labels": labels,
             "pixel_values": pixel_values,
             "image_flags": image_flags,
         }
